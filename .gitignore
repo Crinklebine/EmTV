@@ -361,3 +361,20 @@ MigrationBackup/
 
 # Fody - auto-generated XML schema
 FodyWeavers.xsd
+
+# WinUI/Packaging outputs
+AppPackages/
+BundleArtifacts/
+Package.StoreAssociation.xml
+*.appx
+*.appxbundle
+*.msix
+*.msixbundle
+*.cer
+
+# Runtime local data (don’t commit user state)
+**/LocalState/
+**/TempState/
+
+# Optional local playlist config
+playlists.json

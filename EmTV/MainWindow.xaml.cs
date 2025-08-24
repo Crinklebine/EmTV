@@ -2,13 +2,14 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 
+using Microsoft.UI.Text;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
-using Microsoft.UI.Text;
 
 using Windows.Media.Core;
 using Windows.Media.Playback;
@@ -17,30 +18,27 @@ using Windows.Storage.Pickers;
 using Windows.Web.Http;
 using Windows.Web.Http.Filters;
 
-using Microsoft.UI.Xaml.Controls;  // TextBlock
-using Microsoft.UI.Xaml.Media;     // FontFamily
-
 using WinRT;
 
 namespace EmTV
 {
     public sealed partial class MainWindow : Window
     {
-        // Models
+        // -------- Models --------
         public record Channel(string Name, string Group, string? Logo, string Url);
         public record PlaylistSlot(string Emoji, string? Url);
 
-        // Fields
-        private readonly MediaPlayer _mp = new();
+        // -------- Fields --------
+        private readonly MediaPlayer _mp = new();   // single player, no detach/rebuild
         private AppWindow? _appWindow;
         private bool _isFull;
         private GridLength _savedLeftWidth = new GridLength(360);
 
-        // 6 quick playlist buttons (slot 1 pre-configured for Thailand)
+        // Six quick playlist buttons (slot 1 preconfigured)
         private List<PlaylistSlot> _playlistSlots = new()
         {
             new("🛕", "https://raw.githubusercontent.com/akkradet/IPTV-THAI/refs/heads/master/FREETV.m3u"),
-            new("🍁", "https://raw.githubusercontent.com/samuelyi/IPTV-FreeLegalCountries/refs/heads/master/CA01_CANADA.m3u"),
+            new("⭐",  "https://raw.githubusercontent.com/iptv-org/iptv/refs/heads/master/streams/ca.m3u"),
             new("📺",  null),
             new("🎬",  null),
             new("🌍",  null),
@@ -51,17 +49,21 @@ namespace EmTV
         {
             InitializeComponent();
 
-            // Wire player and start idle (show poster)
+            // Wire a single MediaPlayer to the element
             Player.SetMediaPlayer(_mp);
-            _mp.AutoPlay = false;
-            _mp.Source = null;
-            Player.AreTransportControlsEnabled = false; // off by default
+            _mp.AutoPlay = false;       // poster on first launch
+            Player.Source = null;
+            Player.AreTransportControlsEnabled = false;
 
-            // Hide seek bar for live TV
+            // Live TV: hide seekbar
             Player.TransportControls.IsSeekBarVisible = false;
             Player.TransportControls.IsSeekEnabled = false;
 
-            // Keyboard shortcuts ready
+            // State -> overlays + when to show controls
+            _mp.PlaybackSession.PlaybackStateChanged += OnPlaybackStateChanged;
+            _mp.MediaFailed += OnMediaFailed;
+
+            // Keyboard shortcuts focus
             Activated += (_, __) => VideoHost.Focus(FocusState.Programmatic);
 
             // AppWindow for fullscreen
@@ -69,86 +71,147 @@ namespace EmTV
             var winId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = AppWindow.GetFromWindowId(winId);
 
-            // Start with NO channels loaded
+            // Start empty
             Samples.ItemsSource = Array.Empty<Channel>();
 
-            // Show/hide controls + overlay based on playback state
-            var session = _mp.PlaybackSession;
-            session.PlaybackStateChanged += (_, __) => DispatcherQueue.TryEnqueue(() =>
+            // Initialize emoji buttons (optional override via playlists.json)
+            _ = InitPlaylistsAsync();
+        }
+
+        // =========================================================
+        // TransportControls reset (clears any old built-in error banner)
+        // =========================================================
+        private void ResetTransportControls()
+        {
+            // Replace the transport controls instance to flush internal state/banner
+            var mtc = new MediaTransportControls();
+            Player.TransportControls = mtc;
+
+            // Re-apply our settings
+            mtc.IsSeekBarVisible = false;
+            mtc.IsSeekEnabled = false;
+
+            // Keep them hidden until the stream is ready
+            Player.AreTransportControlsEnabled = false;
+        }
+
+        // =========================================================
+        // Playback state & failure
+        // =========================================================
+        private void OnPlaybackStateChanged(MediaPlaybackSession sender, object args)
+        {
+            DispatcherQueue.TryEnqueue(() =>
             {
-                var st = session.PlaybackState;
+                var st = sender.PlaybackState;
 
-                // Controls only when ready
-                Player.AreTransportControlsEnabled =
-                    st == MediaPlaybackState.Playing || st == MediaPlaybackState.Paused;
-
-                // Overlay during Opening/Buffering
+                // Loading overlay while Opening/Buffering
                 LoadingOverlay.Visibility =
                     (st == MediaPlaybackState.Opening || st == MediaPlaybackState.Buffering)
                     ? Visibility.Visible
                     : Visibility.Collapsed;
-            });
 
-            // On failure: hide overlay, show controls so the user can act
-            _mp.MediaFailed += (_, __) => DispatcherQueue.TryEnqueue(() =>
-            {
-                LoadingOverlay.Visibility = Visibility.Collapsed;
-                Player.AreTransportControlsEnabled = true;
+                // Show built-in controls only when actually ready
+                Player.AreTransportControlsEnabled =
+                    st == MediaPlaybackState.Playing || st == MediaPlaybackState.Paused;
             });
-
-            // Init emoji playlist buttons (doesn't auto-load anything)
-            _ = InitPlaylistsAsync();
         }
 
-        // -------- Playback (headers supported) --------
-        private async Task PlayUrlAsync(string url, IDictionary<string, string>? headers = null)
+        private void OnMediaFailed(MediaPlayer sender, MediaPlayerFailedEventArgs e)
         {
-            // Hide controls + show overlay immediately
             DispatcherQueue.TryEnqueue(() =>
             {
+                // Stop spinner, show our error (not the built-in banner)
+                LoadingOverlay.Visibility = Visibility.Collapsed;
+                ShowErrorOverlay($"{e.Error} (0x{e.ExtendedErrorCode.HResult:X8})");
+
+                // Return to poster
+                try { sender.Pause(); } catch { }
+                sender.Source = null;
+                Player.Source = null;
+
+                // Keep controls off on failure
                 Player.AreTransportControlsEnabled = false;
-                LoadingOverlay.Visibility = Visibility.Visible;
             });
+        }
+
+        // Error overlay helpers
+        private void ShowErrorOverlay(string message)
+        {
+            ErrorDetail.Text = string.IsNullOrWhiteSpace(message) ? "Playback failed." : message;
+            ErrorOverlay.Visibility = Visibility.Visible;
+        }
+
+        private void HideErrorOverlay()
+        {
+            ErrorOverlay.Visibility = Visibility.Collapsed;
+            ErrorDetail.Text = string.Empty;
+        }
+
+        private void OnDismissError(object sender, RoutedEventArgs e) => HideErrorOverlay();
+
+        // =========================================================
+        // Start playback (headers optional) — simple, reliable
+        // =========================================================
+        private async Task PlayUrlAsync(string url, IDictionary<string, string>? headers = null)
+        {
+            // UI to loading and clear any prior overlay/banner
+            HideErrorOverlay();
+            LoadingOverlay.Visibility = Visibility.Visible;
+
+            // Reset transport controls to flush any old built-in error banner
+            ResetTransportControls();
 
             var uri = new Uri(url);
             AdaptiveMediaSourceCreationResult createResult;
 
-            if (headers is not null && headers.Count > 0)
+            try
             {
-                var filter = new HttpBaseProtocolFilter();
-                var client = new HttpClient(filter);
-                foreach (var kv in headers)
-                    client.DefaultRequestHeaders.TryAppendWithoutValidation(kv.Key, kv.Value);
+                if (headers is not null && headers.Count > 0)
+                {
+                    var filter = new HttpBaseProtocolFilter();
+                    var client = new HttpClient(filter);
+                    foreach (var kv in headers)
+                        client.DefaultRequestHeaders.TryAppendWithoutValidation(kv.Key, kv.Value);
 
-                createResult = await AdaptiveMediaSource.CreateFromUriAsync(uri, client);
-            }
-            else
-            {
-                createResult = await AdaptiveMediaSource.CreateFromUriAsync(uri);
-            }
+                    createResult = await AdaptiveMediaSource.CreateFromUriAsync(uri, client);
+                }
+                else
+                {
+                    createResult = await AdaptiveMediaSource.CreateFromUriAsync(uri);
+                }
 
-            if (createResult.Status == AdaptiveMediaSourceCreationStatus.Success)
-            {
-                var ams = createResult.MediaSource;
-                ams.DesiredLiveOffset = TimeSpan.FromSeconds(3); // tweak for smoother live
-                _mp.Source = MediaSource.CreateFromAdaptiveMediaSource(ams);
+                if (createResult.Status == AdaptiveMediaSourceCreationStatus.Success)
+                {
+                    var ams = createResult.MediaSource;
+                    ams.DesiredLiveOffset = TimeSpan.FromSeconds(3); // smoother live
+                    _mp.Source = MediaSource.CreateFromAdaptiveMediaSource(ams);
+                }
+                else
+                {
+                    _mp.Source = MediaSource.CreateFromUri(uri);
+                }
+
                 _mp.Play();
             }
-            else
+            catch (Exception ex)
             {
-                _mp.Source = MediaSource.CreateFromUri(uri);
-                _mp.Play();
+                // Surface as our own error (network/parse exceptions, etc.)
+                LoadingOverlay.Visibility = Visibility.Collapsed;
+                ShowErrorOverlay(ex.Message);
+                _mp.Source = null;
+                Player.Source = null;
             }
         }
 
-        // -------- Channel list click --------
+        // =========================================================
+        // Left pane interactions
+        // =========================================================
         private void OnSampleClick(object sender, ItemClickEventArgs e)
         {
             if (e.ClickedItem is Channel ch)
                 _ = PlayUrlAsync(ch.Url);
         }
 
-        // -------- Advanced Controls dialog --------
         private async void OnAdvancedControlsClick(object sender, RoutedEventArgs e)
         {
             var urlBox = new TextBox
@@ -204,18 +267,18 @@ namespace EmTV
             if (chs.Count > 0) _ = PlayUrlAsync(chs[0].Url);
         }
 
-        // -------- Emoji playlist buttons --------
+        // Quick playlist buttons (emoji row)
         private async Task InitPlaylistsAsync()
         {
-            // Optional override via playlists.json in LocalFolder
+            // Optional override via playlists.json in LocalState
             try
             {
                 var local = Windows.Storage.ApplicationData.Current.LocalFolder;
-                var file = await local.TryGetItemAsync("playlists.json") as Windows.Storage.StorageFile;
-                if (file is not null)
+                var sf = await local.TryGetItemAsync("playlists.json") as Windows.Storage.StorageFile;
+                if (sf is not null)
                 {
-                    var json = await Windows.Storage.FileIO.ReadTextAsync(file);
-                    var parsed = System.Text.Json.JsonSerializer.Deserialize<List<PlaylistSlot>>(json);
+                    var json = await Windows.Storage.FileIO.ReadTextAsync(sf);
+                    var parsed = JsonSerializer.Deserialize<List<PlaylistSlot>>(json);
                     if (parsed is { Count: > 0 }) _playlistSlots = parsed.Take(6).ToList();
                 }
             }
@@ -233,12 +296,9 @@ namespace EmTV
         {
             if (index >= _playlistSlots.Count) return;
             var slot = _playlistSlots[index];
-
-            // Use a TextBlock with Segoe UI Emoji so flags render as flags
-            btn.Content = EmojiBlock(slot.Emoji);
-            btn.Tag = slot.Url; // keep the URL for click handler
+            btn.Content = slot.Emoji;  // text; style in XAML handles font/size
+            btn.Tag = slot.Url;        // URL for click handler (null = not configured)
         }
-
 
         private async void OnPlaylistButtonClick(object sender, RoutedEventArgs e)
         {
@@ -269,7 +329,9 @@ namespace EmTV
             }
         }
 
-        // -------- M3U parsing helpers --------
+        // =========================================================
+        // M3U parsing helpers
+        // =========================================================
         private static IEnumerable<Channel> ParseM3UFromFile(string path)
         {
             string? name = null, group = "", logo = null;
@@ -318,7 +380,9 @@ namespace EmTV
             return j > i ? s.Substring(i + k.Length, j - (i + k.Length)) : null;
         }
 
-        // -------- Fullscreen controls --------
+        // =========================================================
+        // Fullscreen controls
+        // =========================================================
         private void OnToggleFullscreen(object sender, RoutedEventArgs e) => ToggleFullscreen();
         private void OnVideoDoubleTapped(object sender, DoubleTappedRoutedEventArgs e) => ToggleFullscreen();
 
@@ -354,21 +418,9 @@ namespace EmTV
             // Segoe MDL2: E740 = Fullscreen, E73F = BackToWindow
             FullIcon.Glyph = full ? "\uE73F" : "\uE740";
         }
-
-        private static TextBlock EmojiBlock(string emoji) => new TextBlock
-        {
-            Text = emoji,
-            FontFamily = new FontFamily("Segoe UI Emoji"),
-            FontSize = 28,
-            TextAlignment = Microsoft.UI.Xaml.TextAlignment.Center,
-            HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Center,
-            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
-            LineStackingStrategy = Microsoft.UI.Xaml.LineStackingStrategy.BlockLineHeight,
-            LineHeight = 36
-        };
-
     }
 }
+
 
 
 
