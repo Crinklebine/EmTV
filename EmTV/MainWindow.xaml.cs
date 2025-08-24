@@ -50,7 +50,8 @@ namespace EmTV
 
             // Media player wiring
             Player.SetMediaPlayer(_mp);
-            _mp.AutoPlay = true;
+            _mp.AutoPlay = false;         // start idle to show the poster
+            _mp.Source = null;            // ensures the poster is visible
             _mp.MediaFailed += (s, e) =>
                 System.Diagnostics.Debug.WriteLine($"MediaFailed: {e.Error} {e.ErrorMessage}");
 

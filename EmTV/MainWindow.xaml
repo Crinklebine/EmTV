@@ -78,25 +78,31 @@
             </ListView>
         </Grid>
 
-
         <!-- Right: video + overlay controls -->
         <Grid x:Name="VideoHost" Grid.Column="1" Background="Black" KeyDown="OnRootKeyDown">
             <MediaPlayerElement x:Name="Player"
-                          AreTransportControlsEnabled="True"
-                          DoubleTapped="OnVideoDoubleTapped"/>
-            <StackPanel Orientation="Horizontal"
-                  HorizontalAlignment="Right"
-                  VerticalAlignment="Top"
-                  Margin="8"
-                  Background="#80000000"
-                  Padding="6"
-                  CornerRadius="8">
+                      AreTransportControlsEnabled="True"
+                      DoubleTapped="OnVideoDoubleTapped"
+                      Stretch="Uniform"
+                      PosterSource="ms-appx:///Assets/EmTV-Load.png"/>
+
+            <!-- Overlay: fullscreen toggle -->
+            <StackPanel x:Name="OverlayPanel"
+              Orientation="Horizontal"
+              HorizontalAlignment="Right"
+              VerticalAlignment="Top"
+              Margin="8"
+              Background="#80000000"
+              Padding="6"
+              CornerRadius="8">
                 <Button x:Name="FullBtn" Click="OnToggleFullscreen"
-                ToolTipService.ToolTip="Fullscreen (F) / Exit (Esc)">
+            ToolTipService.ToolTip="Fullscreen (F) / Exit (Esc)">
+                    <!-- Segoe MDL2: E740 fullscreen, E73F back-to-window -->
                     <FontIcon x:Name="FullIcon" Glyph="&#xE740;" FontFamily="Segoe MDL2 Assets"/>
                 </Button>
             </StackPanel>
         </Grid>
+
 
     </Grid>
 </Window>
