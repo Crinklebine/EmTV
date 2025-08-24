@@ -48,35 +48,31 @@ namespace EmTV
         {
             InitializeComponent();
 
-            // Media player wiring
+            // Wire player and force idle
             Player.SetMediaPlayer(_mp);
-            _mp.AutoPlay = false;         // start idle to show the poster
-            _mp.Source = null;            // ensures the poster is visible
-            _mp.MediaFailed += (s, e) =>
-                System.Diagnostics.Debug.WriteLine($"MediaFailed: {e.Error} {e.ErrorMessage}");
+            _mp.AutoPlay = false;   // don't start when a Source is assigned
+            _mp.Source = null;      // ensure poster image is shown
+            Player.Source = null;   // (belt & suspenders)
 
-            // Let window receive keyboard shortcuts on focus
+            // Optional: hide seek bar for live TV
+            Player.TransportControls.IsSeekBarVisible = false;
+            Player.TransportControls.IsSeekEnabled = false;
+
+            // Keyboard shortcuts ready
             Activated += (_, __) => VideoHost.Focus(FocusState.Programmatic);
 
-            // AppWindow for fullscreen
+            // Fullscreen support
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
             var winId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = AppWindow.GetFromWindowId(winId);
 
-            // Sample channels (you can remove later)
-            Samples.ItemsSource = new List<Sample>
-            {
-                new("7HD",    "https://lb1-live-mv.v2h-cdn.com/hls/ffac/gohg/gohg.m3u8"),
-                new("Amarin", "https://lb1-live-mv.v2h-cdn.com/hls/ffad/vibomi/vibomi.m3u8"),
-                new("Test (BBB)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"),
-            };
+            // Start with NO channels loaded
+            Samples.ItemsSource = Array.Empty<Channel>();
 
-            // Initialize emoji playlist buttons (optional JSON override)
+            // Set up emoji buttons (doesn't load any playlist automatically)
             _ = InitPlaylistsAsync();
-
-            // Start first sample
-            _ = PlayUrlAsync(((Sample)Samples.Items[0]).Url);
         }
+
 
         // =========================
         // Playback (headers supported)
