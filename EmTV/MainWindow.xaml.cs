@@ -3,34 +3,37 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+
 using Windows.Media.Core;
 using Windows.Media.Playback;
 using Windows.Media.Streaming.Adaptive;
 using Windows.Storage.Pickers;
 using Windows.Web.Http;
 using Windows.Web.Http.Filters;
+
 using WinRT;
 
 namespace EmTV
 {
     public sealed partial class MainWindow : Window
     {
-        // --- Models ---
+        // Models
         public record Sample(string Name, string Url);
         public record Channel(string Name, string Group, string? Logo, string Url);
         public record PlaylistSlot(string Emoji, string? Url);
 
-        // --- Fields ---
+        // Fields
         private readonly MediaPlayer _mp = new();
         private AppWindow? _appWindow;
         private bool _isFull;
         private GridLength _savedLeftWidth = new GridLength(360);
 
-        // 6 playlist slots; slot 1 (🇹🇭) preconfigured, others placeholders for future config
+        // 6 quick playlist buttons (slot 1 pre-configured for Thailand)
         private List<PlaylistSlot> _playlistSlots = new()
         {
             new("🇹🇭", "https://raw.githubusercontent.com/akkradet/IPTV-THAI/refs/heads/master/FREETV.m3u"),
@@ -45,25 +48,21 @@ namespace EmTV
         {
             InitializeComponent();
 
-            // Hide timeline for live TV
-            Player.TransportControls.IsSeekBarVisible = false;
-            Player.TransportControls.IsSeekEnabled = false;
-
-            // Attach the MediaPlayer to XAML element
+            // Media player wiring
             Player.SetMediaPlayer(_mp);
             _mp.AutoPlay = true;
             _mp.MediaFailed += (s, e) =>
                 System.Diagnostics.Debug.WriteLine($"MediaFailed: {e.Error} {e.ErrorMessage}");
 
-            // Focus video host so key events work (F/Esc/Arrows)
+            // Let window receive keyboard shortcuts on focus
             Activated += (_, __) => VideoHost.Focus(FocusState.Programmatic);
 
-            // AppWindow for true fullscreen
+            // AppWindow for fullscreen
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
             var winId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = AppWindow.GetFromWindowId(winId);
 
-            // Quick sample channels (you can remove later)
+            // Sample channels (you can remove later)
             Samples.ItemsSource = new List<Sample>
             {
                 new("7HD",    "https://lb1-live-mv.v2h-cdn.com/hls/ffac/gohg/gohg.m3u8"),
@@ -71,7 +70,7 @@ namespace EmTV
                 new("Test (BBB)", "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8"),
             };
 
-            // Initialize playlist buttons (apply emoji + URLs; optional JSON override)
+            // Initialize emoji playlist buttons (optional JSON override)
             _ = InitPlaylistsAsync();
 
             // Start first sample
@@ -79,7 +78,7 @@ namespace EmTV
         }
 
         // =========================
-        // Playback (with headers)
+        // Playback (headers supported)
         // =========================
         private async Task PlayUrlAsync(string url, IDictionary<string, string>? headers = null)
         {
@@ -103,9 +102,8 @@ namespace EmTV
             if (createResult.Status == AdaptiveMediaSourceCreationStatus.Success)
             {
                 var ams = createResult.MediaSource;
-                ams.DesiredLiveOffset = TimeSpan.FromSeconds(3); // tweak for smoother live playback
-                var mediaSource = MediaSource.CreateFromAdaptiveMediaSource(ams);
-                _mp.Source = mediaSource; // or new MediaPlaybackItem(mediaSource)
+                ams.DesiredLiveOffset = TimeSpan.FromSeconds(3);
+                _mp.Source = MediaSource.CreateFromAdaptiveMediaSource(ams);
                 _mp.Play();
             }
             else
@@ -116,31 +114,59 @@ namespace EmTV
         }
 
         // =========================
-        // Left pane actions
+        // Channel list interactions
         // =========================
-        private void OnPlayClick(object sender, RoutedEventArgs e)
-        {
-            var url = UrlBox.Text?.Trim();
-            if (!string.IsNullOrWhiteSpace(url))
-                _ = PlayUrlAsync(url);
-        }
-
         private void OnSampleClick(object sender, ItemClickEventArgs e)
         {
-            switch (e.ClickedItem)
+            if (e.ClickedItem is Sample s) _ = PlayUrlAsync(s.Url);
+            else if (e.ClickedItem is Channel ch) _ = PlayUrlAsync(ch.Url);
+        }
+
+        // =========================
+        // Advanced Controls dialog
+        // =========================
+        private async void OnAdvancedControlsClick(object sender, RoutedEventArgs e)
+        {
+            var urlBox = new TextBox
             {
-                case Sample s:
-                    UrlBox.Text = s.Url;
-                    _ = PlayUrlAsync(s.Url);
-                    break;
-                case Channel ch:
-                    UrlBox.Text = ch.Url;
-                    _ = PlayUrlAsync(ch.Url);
-                    break;
+                PlaceholderText = "https://...m3u8",
+                MinWidth = 340
+            };
+
+            var panel = new StackPanel { Spacing = 8 };
+            panel.Children.Add(new TextBlock
+            {
+                Text = "Quick play URL",
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+            });
+            panel.Children.Add(urlBox);
+
+            var dlg = new ContentDialog
+            {
+                Title = "Advanced Controls",
+                Content = panel,
+                PrimaryButtonText = "Play",
+                SecondaryButtonText = "Load .m3u",
+                CloseButtonText = "Close",
+                DefaultButton = ContentDialogButton.Primary,
+                XamlRoot = this.Content.XamlRoot
+            };
+
+            var result = await dlg.ShowAsync();
+
+            if (result == ContentDialogResult.Primary)
+            {
+                var url = urlBox.Text?.Trim();
+                if (!string.IsNullOrWhiteSpace(url))
+                    await PlayUrlAsync(url);
+            }
+            else if (result == ContentDialogResult.Secondary)
+            {
+                await PickAndLoadM3UAsync();
             }
         }
 
-        private async void OnLoadM3U(object sender, RoutedEventArgs e)
+        private async Task PickAndLoadM3UAsync()
         {
             var picker = new FileOpenPicker();
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
@@ -163,9 +189,7 @@ namespace EmTV
         // =========================
         private async Task InitPlaylistsAsync()
         {
-            // Optional: look for a user-provided JSON to override slots:
-            //   playlists.json in LocalFolder
-            //   Format: [ {"Emoji":"🇹🇭","Url":"https://..."}, {"Emoji":"⭐","Url":null}, ... ]
+            // Optional: allow overriding slots via playlists.json in LocalFolder
             try
             {
                 var local = Windows.Storage.ApplicationData.Current.LocalFolder;
@@ -174,16 +198,11 @@ namespace EmTV
                 {
                     var json = await Windows.Storage.FileIO.ReadTextAsync(file);
                     var parsed = System.Text.Json.JsonSerializer.Deserialize<List<PlaylistSlot>>(json);
-                    if (parsed is { Count: > 0 })
-                        _playlistSlots = parsed.Take(6).ToList();
+                    if (parsed is { Count: > 0 }) _playlistSlots = parsed.Take(6).ToList();
                 }
             }
-            catch
-            {
-                // ignore config errors silently
-            }
+            catch { /* ignore config errors */ }
 
-            // Apply to UI buttons (store URL into Tag; Content is emoji)
             ApplyPlaylistSlotToButton(PlaylistBtn1, 0);
             ApplyPlaylistSlotToButton(PlaylistBtn2, 1);
             ApplyPlaylistSlotToButton(PlaylistBtn3, 2);
@@ -196,21 +215,19 @@ namespace EmTV
         {
             if (index >= _playlistSlots.Count) return;
             var slot = _playlistSlots[index];
-            btn.Content = slot.Emoji;
-            btn.Tag = slot.Url; // keep URL hidden in Tag; null means not configured yet
+            btn.Content = slot.Emoji;   // keep as text so style controls font/size
+            btn.Tag = slot.Url;         // store URL for click handler (null = not configured)
         }
 
         private async void OnPlaylistButtonClick(object sender, RoutedEventArgs e)
         {
             if (sender is not Button btn) return;
             var url = btn.Tag as string;
-
             if (string.IsNullOrWhiteSpace(url))
             {
-                System.Diagnostics.Debug.WriteLine("Playlist slot not configured yet.");
+                System.Diagnostics.Debug.WriteLine("Playlist slot not configured.");
                 return;
             }
-
             await LoadM3UFromUriAsync(url);
         }
 
@@ -232,7 +249,7 @@ namespace EmTV
         }
 
         // =========================
-        // Parsing helpers
+        // M3U parsing helpers
         // =========================
         private static IEnumerable<Channel> ParseM3UFromFile(string path)
         {
@@ -242,8 +259,8 @@ namespace EmTV
                 if (line.StartsWith("#EXTINF:", StringComparison.OrdinalIgnoreCase))
                 {
                     name = line.Split(',').LastOrDefault()?.Trim();
-                    group = GetAttrFromExtinf(line, "group-title") ?? "";
-                    logo = GetAttrFromExtinf(line, "tvg-logo");
+                    group = GetAttr(line, "group-title") ?? "";
+                    logo = GetAttr(line, "tvg-logo");
                 }
                 else if (!line.StartsWith("#") && !string.IsNullOrWhiteSpace(line) && name is not null)
                 {
@@ -262,8 +279,8 @@ namespace EmTV
                 if (line.StartsWith("#EXTINF:", StringComparison.OrdinalIgnoreCase))
                 {
                     name = line.Split(',').LastOrDefault()?.Trim();
-                    group = GetAttrFromExtinf(line, "group-title") ?? "";
-                    logo = GetAttrFromExtinf(line, "tvg-logo");
+                    group = GetAttr(line, "group-title") ?? "";
+                    logo = GetAttr(line, "tvg-logo");
                 }
                 else if (!line.StartsWith("#") && !string.IsNullOrWhiteSpace(line) && name is not null)
                 {
@@ -273,7 +290,7 @@ namespace EmTV
             }
         }
 
-        private static string? GetAttrFromExtinf(string s, string key)
+        private static string? GetAttr(string s, string key)
         {
             var k = key + "=\"";
             var i = s.IndexOf(k, StringComparison.OrdinalIgnoreCase);
@@ -322,4 +339,5 @@ namespace EmTV
         }
     }
 }
+
 
