@@ -8,6 +8,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Text;
 
 using Windows.Media.Core;
 using Windows.Media.Playback;
@@ -23,7 +24,6 @@ namespace EmTV
     public sealed partial class MainWindow : Window
     {
         // Models
-        public record Sample(string Name, string Url);
         public record Channel(string Name, string Group, string? Logo, string Url);
         public record PlaylistSlot(string Emoji, string? Url);
 
@@ -48,20 +48,20 @@ namespace EmTV
         {
             InitializeComponent();
 
-            // Wire player and force idle
+            // Wire player and start idle (show poster)
             Player.SetMediaPlayer(_mp);
-            _mp.AutoPlay = false;   // don't start when a Source is assigned
-            _mp.Source = null;      // ensure poster image is shown
-            Player.Source = null;   // (belt & suspenders)
+            _mp.AutoPlay = false;
+            _mp.Source = null;
+            Player.AreTransportControlsEnabled = false; // off by default
 
-            // Optional: hide seek bar for live TV
+            // Hide seek bar for live TV
             Player.TransportControls.IsSeekBarVisible = false;
             Player.TransportControls.IsSeekEnabled = false;
 
             // Keyboard shortcuts ready
             Activated += (_, __) => VideoHost.Focus(FocusState.Programmatic);
 
-            // Fullscreen support
+            // AppWindow for fullscreen
             var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
             var winId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = AppWindow.GetFromWindowId(winId);
@@ -69,16 +69,44 @@ namespace EmTV
             // Start with NO channels loaded
             Samples.ItemsSource = Array.Empty<Channel>();
 
-            // Set up emoji buttons (doesn't load any playlist automatically)
+            // Show/hide controls + overlay based on playback state
+            var session = _mp.PlaybackSession;
+            session.PlaybackStateChanged += (_, __) => DispatcherQueue.TryEnqueue(() =>
+            {
+                var st = session.PlaybackState;
+
+                // Controls only when ready
+                Player.AreTransportControlsEnabled =
+                    st == MediaPlaybackState.Playing || st == MediaPlaybackState.Paused;
+
+                // Overlay during Opening/Buffering
+                LoadingOverlay.Visibility =
+                    (st == MediaPlaybackState.Opening || st == MediaPlaybackState.Buffering)
+                    ? Visibility.Visible
+                    : Visibility.Collapsed;
+            });
+
+            // On failure: hide overlay, show controls so the user can act
+            _mp.MediaFailed += (_, __) => DispatcherQueue.TryEnqueue(() =>
+            {
+                LoadingOverlay.Visibility = Visibility.Collapsed;
+                Player.AreTransportControlsEnabled = true;
+            });
+
+            // Init emoji playlist buttons (doesn't auto-load anything)
             _ = InitPlaylistsAsync();
         }
 
-
-        // =========================
-        // Playback (headers supported)
-        // =========================
+        // -------- Playback (headers supported) --------
         private async Task PlayUrlAsync(string url, IDictionary<string, string>? headers = null)
         {
+            // Hide controls + show overlay immediately
+            DispatcherQueue.TryEnqueue(() =>
+            {
+                Player.AreTransportControlsEnabled = false;
+                LoadingOverlay.Visibility = Visibility.Visible;
+            });
+
             var uri = new Uri(url);
             AdaptiveMediaSourceCreationResult createResult;
 
@@ -99,7 +127,7 @@ namespace EmTV
             if (createResult.Status == AdaptiveMediaSourceCreationStatus.Success)
             {
                 var ams = createResult.MediaSource;
-                ams.DesiredLiveOffset = TimeSpan.FromSeconds(3);
+                ams.DesiredLiveOffset = TimeSpan.FromSeconds(3); // tweak for smoother live
                 _mp.Source = MediaSource.CreateFromAdaptiveMediaSource(ams);
                 _mp.Play();
             }
@@ -110,18 +138,14 @@ namespace EmTV
             }
         }
 
-        // =========================
-        // Channel list interactions
-        // =========================
+        // -------- Channel list click --------
         private void OnSampleClick(object sender, ItemClickEventArgs e)
         {
-            if (e.ClickedItem is Sample s) _ = PlayUrlAsync(s.Url);
-            else if (e.ClickedItem is Channel ch) _ = PlayUrlAsync(ch.Url);
+            if (e.ClickedItem is Channel ch)
+                _ = PlayUrlAsync(ch.Url);
         }
 
-        // =========================
-        // Advanced Controls dialog
-        // =========================
+        // -------- Advanced Controls dialog --------
         private async void OnAdvancedControlsClick(object sender, RoutedEventArgs e)
         {
             var urlBox = new TextBox
@@ -131,11 +155,7 @@ namespace EmTV
             };
 
             var panel = new StackPanel { Spacing = 8 };
-            panel.Children.Add(new TextBlock
-            {
-                Text = "Quick play URL",
-                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
-            });
+            panel.Children.Add(new TextBlock { Text = "Quick play URL", FontWeight = FontWeights.SemiBold });
             panel.Children.Add(urlBox);
 
             var dlg = new ContentDialog
@@ -181,12 +201,10 @@ namespace EmTV
             if (chs.Count > 0) _ = PlayUrlAsync(chs[0].Url);
         }
 
-        // =========================
-        // Emoji playlist buttons
-        // =========================
+        // -------- Emoji playlist buttons --------
         private async Task InitPlaylistsAsync()
         {
-            // Optional: allow overriding slots via playlists.json in LocalFolder
+            // Optional override via playlists.json in LocalFolder
             try
             {
                 var local = Windows.Storage.ApplicationData.Current.LocalFolder;
@@ -213,7 +231,7 @@ namespace EmTV
             if (index >= _playlistSlots.Count) return;
             var slot = _playlistSlots[index];
             btn.Content = slot.Emoji;   // keep as text so style controls font/size
-            btn.Tag = slot.Url;         // store URL for click handler (null = not configured)
+            btn.Tag = slot.Url;         // URL (null = not configured)
         }
 
         private async void OnPlaylistButtonClick(object sender, RoutedEventArgs e)
@@ -245,9 +263,7 @@ namespace EmTV
             }
         }
 
-        // =========================
-        // M3U parsing helpers
-        // =========================
+        // -------- M3U parsing helpers --------
         private static IEnumerable<Channel> ParseM3UFromFile(string path)
         {
             string? name = null, group = "", logo = null;
@@ -296,9 +312,7 @@ namespace EmTV
             return j > i ? s.Substring(i + k.Length, j - (i + k.Length)) : null;
         }
 
-        // =========================
-        // Fullscreen controls
-        // =========================
+        // -------- Fullscreen controls --------
         private void OnToggleFullscreen(object sender, RoutedEventArgs e) => ToggleFullscreen();
         private void OnVideoDoubleTapped(object sender, DoubleTappedRoutedEventArgs e) => ToggleFullscreen();
 
@@ -336,5 +350,6 @@ namespace EmTV
         }
     }
 }
+
 
 

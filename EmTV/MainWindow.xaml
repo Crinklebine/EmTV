@@ -6,8 +6,9 @@
 
     <Grid x:Name="Root">
 
-        <!-- Styles for emoji playlist buttons -->
+        <!-- Styles -->
         <Grid.Resources>
+            <!-- Emoji playlist buttons (sized to fit the 360px left column) -->
             <Style x:Key="EmojiBtn" TargetType="Button">
                 <Setter Property="Width" Value="48"/>
                 <Setter Property="Height" Value="52"/>
@@ -41,38 +42,38 @@
             <!-- 6 emoji playlist buttons -->
             <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
                 <Button x:Name="PlaylistBtn1" Style="{StaticResource EmojiBtn}" Content="🇹🇭"
-            Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Thai playlist"/>
+                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Thai playlist"/>
                 <Button x:Name="PlaylistBtn2" Style="{StaticResource EmojiBtn}" Content="⭐"
-            Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 2"/>
+                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 2"/>
                 <Button x:Name="PlaylistBtn3" Style="{StaticResource EmojiBtn}" Content="📺"
-            Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 3"/>
+                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 3"/>
                 <Button x:Name="PlaylistBtn4" Style="{StaticResource EmojiBtn}" Content="🎬"
-            Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 4"/>
+                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 4"/>
                 <Button x:Name="PlaylistBtn5" Style="{StaticResource EmojiBtn}" Content="🌍"
-            Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 5"/>
+                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 5"/>
                 <Button x:Name="PlaylistBtn6" Style="{StaticResource EmojiBtn}" Content="🧪"
-            Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 6"/>
+                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 6"/>
             </StackPanel>
 
-            <!-- Advanced Controls (moved up) -->
+            <!-- Advanced Controls -->
             <Button Grid.Row="1"
-          Content="Advanced Controls"
-          Click="OnAdvancedControlsClick"
-          Margin="0,0,0,10"/>
+              Content="Advanced Controls"
+              Click="OnAdvancedControlsClick"
+              Margin="0,0,0,10"/>
 
             <TextBlock Grid.Row="2" Text="Channels" Margin="0,0,0,4" FontWeight="SemiBold"/>
 
             <ListView Grid.Row="3"
-            x:Name="Samples"
-            IsItemClickEnabled="True"
-            ItemClick="OnSampleClick"
-            ScrollViewer.VerticalScrollBarVisibility="Auto">
+                x:Name="Samples"
+                IsItemClickEnabled="True"
+                ItemClick="OnSampleClick"
+                ScrollViewer.VerticalScrollBarVisibility="Auto">
                 <ListView.ItemTemplate>
                     <DataTemplate>
                         <TextBlock Text="{Binding Name}"
-                   FontWeight="SemiBold"
-                   TextWrapping="NoWrap"
-                   TextTrimming="CharacterEllipsis"/>
+                       FontWeight="SemiBold"
+                       TextWrapping="NoWrap"
+                       TextTrimming="CharacterEllipsis"/>
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
@@ -80,29 +81,40 @@
 
         <!-- Right: video + overlay controls -->
         <Grid x:Name="VideoHost" Grid.Column="1" Background="Black" KeyDown="OnRootKeyDown">
-            <MediaPlayerElement x:Name="Player"
-                      AreTransportControlsEnabled="True"
-                      DoubleTapped="OnVideoDoubleTapped"
-                      Stretch="Uniform"
-                      PosterSource="ms-appx:///Assets/EmTV-Load.png"/>
 
-            <!-- Overlay: fullscreen toggle -->
-            <StackPanel x:Name="OverlayPanel"
-              Orientation="Horizontal"
-              HorizontalAlignment="Right"
-              VerticalAlignment="Top"
-              Margin="8"
-              Background="#80000000"
-              Padding="6"
-              CornerRadius="8">
+            <!-- Video surface (poster shows until we set a Source) -->
+            <MediaPlayerElement x:Name="Player"
+                          AreTransportControlsEnabled="False"
+                          DoubleTapped="OnVideoDoubleTapped"
+                          Stretch="Uniform"
+                          PosterSource="ms-appx:///Assets/EmTV-Load.png"/>
+
+            <!-- Loading overlay -->
+            <Grid x:Name="LoadingOverlay"
+            Background="#CC000000"
+            Visibility="Collapsed">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12">
+                    <ProgressRing IsActive="True" Width="54" Height="54"/>
+                    <TextBlock Text="Loading channel…" Foreground="White"
+                     FontSize="16" FontWeight="SemiBold"
+                     HorizontalAlignment="Center"/>
+                </StackPanel>
+            </Grid>
+
+            <!-- Fullscreen button -->
+            <StackPanel Orientation="Horizontal"
+                  HorizontalAlignment="Right"
+                  VerticalAlignment="Top"
+                  Margin="8"
+                  Background="#80000000"
+                  Padding="6"
+                  CornerRadius="8">
                 <Button x:Name="FullBtn" Click="OnToggleFullscreen"
-            ToolTipService.ToolTip="Fullscreen (F) / Exit (Esc)">
-                    <!-- Segoe MDL2: E740 fullscreen, E73F back-to-window -->
+                ToolTipService.ToolTip="Fullscreen (F) / Exit (Esc)">
                     <FontIcon x:Name="FullIcon" Glyph="&#xE740;" FontFamily="Segoe MDL2 Assets"/>
                 </Button>
             </StackPanel>
         </Grid>
-
 
     </Grid>
 </Window>
