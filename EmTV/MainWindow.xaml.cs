@@ -40,7 +40,7 @@ namespace EmTV
         private List<PlaylistSlot> _playlistSlots = new()
         {
             new("🛕", "https://raw.githubusercontent.com/akkradet/IPTV-THAI/refs/heads/master/FREETV.m3u"),
-            new("⭐",  null),
+            new("🍁",  https://raw.githubusercontent.com/samuelyi/IPTV-FreeLegalCountries/refs/heads/master/CA01_CANADA.m3u),
             new("📺",  null),
             new("🎬",  null),
             new("🌍",  null),
