@@ -17,6 +17,9 @@ using Windows.Storage.Pickers;
 using Windows.Web.Http;
 using Windows.Web.Http.Filters;
 
+using Microsoft.UI.Xaml.Controls;  // TextBlock
+using Microsoft.UI.Xaml.Media;     // FontFamily
+
 using WinRT;
 
 namespace EmTV
@@ -36,7 +39,7 @@ namespace EmTV
         // 6 quick playlist buttons (slot 1 pre-configured for Thailand)
         private List<PlaylistSlot> _playlistSlots = new()
         {
-            new("🇹🇭", "https://raw.githubusercontent.com/akkradet/IPTV-THAI/refs/heads/master/FREETV.m3u"),
+            new("🛕", "https://raw.githubusercontent.com/akkradet/IPTV-THAI/refs/heads/master/FREETV.m3u"),
             new("⭐",  null),
             new("📺",  null),
             new("🎬",  null),
@@ -230,9 +233,12 @@ namespace EmTV
         {
             if (index >= _playlistSlots.Count) return;
             var slot = _playlistSlots[index];
-            btn.Content = slot.Emoji;   // keep as text so style controls font/size
-            btn.Tag = slot.Url;         // URL (null = not configured)
+
+            // Use a TextBlock with Segoe UI Emoji so flags render as flags
+            btn.Content = EmojiBlock(slot.Emoji);
+            btn.Tag = slot.Url; // keep the URL for click handler
         }
+
 
         private async void OnPlaylistButtonClick(object sender, RoutedEventArgs e)
         {
@@ -348,6 +354,19 @@ namespace EmTV
             // Segoe MDL2: E740 = Fullscreen, E73F = BackToWindow
             FullIcon.Glyph = full ? "\uE73F" : "\uE740";
         }
+
+        private static TextBlock EmojiBlock(string emoji) => new TextBlock
+        {
+            Text = emoji,
+            FontFamily = new FontFamily("Segoe UI Emoji"),
+            FontSize = 28,
+            TextAlignment = Microsoft.UI.Xaml.TextAlignment.Center,
+            HorizontalAlignment = Microsoft.UI.Xaml.HorizontalAlignment.Center,
+            VerticalAlignment = Microsoft.UI.Xaml.VerticalAlignment.Center,
+            LineStackingStrategy = Microsoft.UI.Xaml.LineStackingStrategy.BlockLineHeight,
+            LineHeight = 36
+        };
+
     }
 }
 

@@ -30,6 +30,8 @@
         <Grid x:Name="LeftPane" Padding="12">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
+                <!-- Channel Lists label -->
+                <RowDefinition Height="Auto"/>
                 <!-- Emoji playlist buttons -->
                 <RowDefinition Height="Auto"/>
                 <!-- Advanced Controls button -->
@@ -39,45 +41,52 @@
                 <!-- Channel list -->
             </Grid.RowDefinitions>
 
+            <!-- NEW: label before the channel list buttons -->
+            <TextBlock Grid.Row="0"
+             Text="Channel Lists:"
+             FontWeight="SemiBold"
+             Margin="0,0,0,8"/>
+
             <!-- 6 emoji playlist buttons -->
-            <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
-                <Button x:Name="PlaylistBtn1" Style="{StaticResource EmojiBtn}" Content="🇹🇭"
-                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Thai playlist"/>
+            <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
+                <Button x:Name="PlaylistBtn1" Style="{StaticResource EmojiBtn}" Content="🛕"
+            Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Thai playlist"/>
                 <Button x:Name="PlaylistBtn2" Style="{StaticResource EmojiBtn}" Content="⭐"
-                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 2"/>
+            Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 2"/>
                 <Button x:Name="PlaylistBtn3" Style="{StaticResource EmojiBtn}" Content="📺"
-                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 3"/>
+            Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 3"/>
                 <Button x:Name="PlaylistBtn4" Style="{StaticResource EmojiBtn}" Content="🎬"
-                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 4"/>
+            Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 4"/>
                 <Button x:Name="PlaylistBtn5" Style="{StaticResource EmojiBtn}" Content="🌍"
-                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 5"/>
+            Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 5"/>
                 <Button x:Name="PlaylistBtn6" Style="{StaticResource EmojiBtn}" Content="🧪"
-                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 6"/>
+            Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 6"/>
             </StackPanel>
 
             <!-- Advanced Controls -->
-            <Button Grid.Row="1"
-              Content="Advanced Controls"
-              Click="OnAdvancedControlsClick"
-              Margin="0,0,0,10"/>
+            <Button Grid.Row="2"
+          Content="Advanced Controls"
+          Click="OnAdvancedControlsClick"
+          Margin="0,0,0,10"/>
 
-            <TextBlock Grid.Row="2" Text="Channels" Margin="0,0,0,4" FontWeight="SemiBold"/>
+            <TextBlock Grid.Row="3" Text="Channels" Margin="0,0,0,4" FontWeight="SemiBold"/>
 
-            <ListView Grid.Row="3"
-                x:Name="Samples"
-                IsItemClickEnabled="True"
-                ItemClick="OnSampleClick"
-                ScrollViewer.VerticalScrollBarVisibility="Auto">
+            <ListView Grid.Row="4"
+            x:Name="Samples"
+            IsItemClickEnabled="True"
+            ItemClick="OnSampleClick"
+            ScrollViewer.VerticalScrollBarVisibility="Auto">
                 <ListView.ItemTemplate>
                     <DataTemplate>
                         <TextBlock Text="{Binding Name}"
-                       FontWeight="SemiBold"
-                       TextWrapping="NoWrap"
-                       TextTrimming="CharacterEllipsis"/>
+                   FontWeight="SemiBold"
+                   TextWrapping="NoWrap"
+                   TextTrimming="CharacterEllipsis"/>
                     </DataTemplate>
                 </ListView.ItemTemplate>
             </ListView>
         </Grid>
+
 
         <!-- Right: video + overlay controls -->
         <Grid x:Name="VideoHost" Grid.Column="1" Background="Black" KeyDown="OnRootKeyDown">
