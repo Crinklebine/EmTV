@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "EmTV (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "EmTV (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}
