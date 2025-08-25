@@ -71,6 +71,9 @@ namespace EmTV
             var winId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = AppWindow.GetFromWindowId(winId);
 
+            // Set the small caption/task-switcher icon
+            try { _appWindow.SetIcon("Assets/emtv.ico"); } catch { /* ignore if not supported */ }
+
             // Start empty
             Samples.ItemsSource = Array.Empty<Channel>();
 
