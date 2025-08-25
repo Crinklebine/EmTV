@@ -63,11 +63,11 @@
                 Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Australia playlist"/>
             </StackPanel>
 
-            <!-- Advanced Controls -->
-            <Button Grid.Row="2"
-              Content="Advanced Controls"
-              Click="OnAdvancedControlsClick"
-              Margin="0,0,0,10"/>
+            <!-- Advanced Controls + About -->
+            <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,0,0,10">
+                <Button Content="Advanced Controls" Click="OnAdvancedControlsClick"/>
+                <Button Content="About" Click="OnAboutClick"/>
+            </StackPanel>
 
             <TextBlock Grid.Row="3"
             x:Name="ChannelHeader"

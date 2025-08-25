@@ -17,6 +17,7 @@ using Windows.Media.Streaming.Adaptive;
 using Windows.Storage.Pickers;
 using Windows.Web.Http;
 using Windows.Web.Http.Filters;
+using Windows.ApplicationModel;
 
 using WinRT;
 
@@ -479,6 +480,48 @@ namespace EmTV
             catch { return "Playlist"; }
         }
 
+        private async void OnAboutClick(object sender, Microsoft.UI.Xaml.RoutedEventArgs e)
+        {
+            string version;
+            try
+            {
+                // Packaged app version (manifest): Major.Minor.Build.Revision
+                var v = Package.Current.Id.Version;
+                version = $"{v.Major}.{v.Minor}.{v.Build}.{v.Revision}";
+            }
+            catch
+            {
+                // Fallback for any edge cases
+                var asmVer = System.Reflection.Assembly.GetExecutingAssembly()?.GetName()?.Version;
+                version = asmVer?.ToString() ?? "0.0.0.0";
+            }
+
+            var panel = new Microsoft.UI.Xaml.Controls.StackPanel { Spacing = 4 };
+            panel.Children.Add(new Microsoft.UI.Xaml.Controls.TextBlock
+            {
+                Text = "EmTV",
+                FontSize = 20,
+                FontWeight = Microsoft.UI.Text.FontWeights.SemiBold
+            });
+            panel.Children.Add(new Microsoft.UI.Xaml.Controls.TextBlock
+            {
+                Text = $"Version {version}"
+            });
+            panel.Children.Add(new Microsoft.UI.Xaml.Controls.TextBlock
+            {
+                Text = "© Crinklebine"
+            });
+
+            var dlg = new Microsoft.UI.Xaml.Controls.ContentDialog
+            {
+                Title = "About",
+                Content = panel,
+                CloseButtonText = "OK",
+                XamlRoot = this.Content.XamlRoot
+            };
+
+            await dlg.ShowAsync();
+        }
 
     }
 }
