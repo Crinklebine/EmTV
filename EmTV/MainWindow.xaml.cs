@@ -38,11 +38,11 @@ namespace EmTV
         private List<PlaylistSlot> _playlistSlots = new()
         {
             new("🛕", "https://raw.githubusercontent.com/akkradet/IPTV-THAI/refs/heads/master/FREETV.m3u"),
-            new("⭐",  "https://raw.githubusercontent.com/iptv-org/iptv/refs/heads/master/streams/ca.m3u"),
-            new("📺", "https://raw.githubusercontent.com/iptv-org/iptv/refs/heads/master/streams/uk.m3u"),
-            new("🎬",  null),
-            new("🌍",  null),
-            new("🧪",  null),
+            new("🍁", "https://raw.githubusercontent.com/iptv-org/iptv/refs/heads/master/streams/ca.m3u"),
+            new("💂", "https://raw.githubusercontent.com/iptv-org/iptv/refs/heads/master/streams/uk.m3u"),
+            new("🗽", "https://raw.githubusercontent.com/iptv-org/iptv/refs/heads/master/streams/us.m3u"),
+            new("🍀", "https://raw.githubusercontent.com/iptv-org/iptv/refs/heads/master/streams/ie.m3u"),
+            new("🦘", "https://raw.githubusercontent.com/iptv-org/iptv/refs/heads/master/streams/au.m3u"),
         };
 
         public MainWindow()
