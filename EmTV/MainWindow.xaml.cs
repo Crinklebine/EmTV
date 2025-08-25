@@ -33,6 +33,8 @@ namespace EmTV
         private AppWindow? _appWindow;
         private bool _isFull;
         private GridLength _savedLeftWidth = new GridLength(360);
+        private bool _hasPlaylist;   // true after a list is loaded
+        private string? _activePlaylistName;
 
         // Six quick playlist buttons (slot 1 preconfigured)
         private List<PlaylistSlot> _playlistSlots = new()
@@ -116,6 +118,8 @@ namespace EmTV
                 // Show built-in controls only when actually ready
                 Player.AreTransportControlsEnabled =
                     st == MediaPlaybackState.Playing || st == MediaPlaybackState.Paused;
+
+                UpdateIdleOverlay();
             });
         }
 
@@ -134,6 +138,8 @@ namespace EmTV
 
                 // Keep controls off on failure
                 Player.AreTransportControlsEnabled = false;
+
+                UpdateIdleOverlay();
             });
         }
 
@@ -159,7 +165,9 @@ namespace EmTV
         {
             // UI to loading and clear any prior overlay/banner
             HideErrorOverlay();
+            IdleOverlay.Visibility = Visibility.Collapsed;   // we’re tuning now
             LoadingOverlay.Visibility = Visibility.Visible;
+            Player.AreTransportControlsEnabled = false;
 
             // Reset transport controls to flush any old built-in error banner
             ResetTransportControls();
@@ -251,7 +259,6 @@ namespace EmTV
                 await PickAndLoadM3UAsync();
             }
         }
-
         private async Task PickAndLoadM3UAsync()
         {
             var picker = new FileOpenPicker();
@@ -266,8 +273,13 @@ namespace EmTV
 
             var chs = ParseM3UFromFile(file.Path).ToList();
             Samples.ItemsSource = chs;
-            Samples.SelectedIndex = chs.Count > 0 ? 0 : -1;
-            if (chs.Count > 0) _ = PlayUrlAsync(chs[0].Url);
+
+            // Do NOT auto-select or auto-play
+            Samples.SelectedIndex = -1;
+
+            _hasPlaylist = chs.Count > 0;
+            SetActivePlaylistName(file.DisplayName);
+            UpdateIdleOverlay();
         }
 
         // Quick playlist buttons (emoji row)
@@ -307,30 +319,38 @@ namespace EmTV
         {
             if (sender is not Button btn) return;
             var url = btn.Tag as string;
-            if (string.IsNullOrWhiteSpace(url))
-            {
-                System.Diagnostics.Debug.WriteLine("Playlist slot not configured.");
-                return;
-            }
-            await LoadM3UFromUriAsync(url);
+            if (string.IsNullOrWhiteSpace(url)) return;
+
+            var tt = ToolTipService.GetToolTip(btn) as string;
+            // Ignore generic “Playlist 2/3/…” tooltips
+            string? friendly = (!string.IsNullOrWhiteSpace(tt) && !tt.StartsWith("Playlist ", StringComparison.OrdinalIgnoreCase)) ? tt : null;
+
+            await LoadM3UFromUriAsync(url, friendly);
         }
 
-        private async Task LoadM3UFromUriAsync(string url)
+        private async Task LoadM3UFromUriAsync(string url, string? friendlyName = null)
         {
             try
             {
-                var client = new HttpClient(new HttpBaseProtocolFilter());
+                var client = new Windows.Web.Http.HttpClient(new Windows.Web.Http.Filters.HttpBaseProtocolFilter());
                 var text = await client.GetStringAsync(new Uri(url));
                 var chs = ParseM3UFromString(text).ToList();
+
                 Samples.ItemsSource = chs;
-                Samples.SelectedIndex = chs.Count > 0 ? 0 : -1;
-                if (chs.Count > 0) _ = PlayUrlAsync(chs[0].Url);
+                Samples.SelectedIndex = -1;          // no auto-play
+                _hasPlaylist = chs.Count > 0;
+
+                // Update the left header (use provided name, else derive from URL)
+                SetActivePlaylistName(friendlyName ?? FriendlyNameFromUrl(url));
+
+                UpdateIdleOverlay();
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Failed to load M3U: {ex.Message}");
             }
         }
+
 
         // =========================================================
         // M3U parsing helpers
@@ -421,6 +441,45 @@ namespace EmTV
             // Segoe MDL2: E740 = Fullscreen, E73F = BackToWindow
             FullIcon.Glyph = full ? "\uE73F" : "\uE740";
         }
+        private void UpdateIdleOverlay()
+        {
+            // Show “Select a channel…” only when a playlist is loaded,
+            // we’re not loading, not in error, and not currently playing/paused.
+            var st = _mp?.PlaybackSession?.PlaybackState;
+            bool isPlayingOrPaused = st == Windows.Media.Playback.MediaPlaybackState.Playing
+                                  || st == Windows.Media.Playback.MediaPlaybackState.Paused;
+
+            bool show = _hasPlaylist
+                     && LoadingOverlay.Visibility != Visibility.Visible
+                     && ErrorOverlay.Visibility != Visibility.Visible
+                     && !isPlayingOrPaused;
+
+            IdleOverlay.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        }
+
+        private void SetActivePlaylistName(string? name)
+        {
+            _activePlaylistName = string.IsNullOrWhiteSpace(name) ? null : name.Trim();
+            ChannelHeader.Text = _activePlaylistName is null ? "Channels" : $"Channels: {_activePlaylistName}";
+        }
+
+        private static string FriendlyNameFromUrl(string url)
+        {
+            try
+            {
+                var u = new Uri(url);
+                var lastSeg = u.Segments.LastOrDefault()?.Trim('/') ?? "";
+                if (lastSeg.EndsWith(".m3u", StringComparison.OrdinalIgnoreCase) ||
+                    lastSeg.EndsWith(".m3u8", StringComparison.OrdinalIgnoreCase))
+                {
+                    return Path.GetFileNameWithoutExtension(lastSeg);
+                }
+                return u.Host;
+            }
+            catch { return "Playlist"; }
+        }
+
+
     }
 }
 

@@ -69,7 +69,11 @@
               Click="OnAdvancedControlsClick"
               Margin="0,0,0,10"/>
 
-            <TextBlock Grid.Row="3" Text="Channels" Margin="0,0,0,4" FontWeight="SemiBold"/>
+            <TextBlock Grid.Row="3"
+            x:Name="ChannelHeader"
+            Text="Channels"
+            Margin="0,0,0,4"
+            FontWeight="SemiBold"/>
 
             <ListView Grid.Row="4"
                 x:Name="Samples"
@@ -96,6 +100,19 @@
                           DoubleTapped="OnVideoDoubleTapped"
                           Stretch="Uniform"
                           PosterSource="ms-appx:///Assets/EmTV-Load.png"/>
+
+            <!-- Idle overlay (shown when a playlist is loaded but nothing is playing) -->
+            <Grid x:Name="IdleOverlay"
+                    Background="#66000000"
+                    Visibility="Collapsed">
+                <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="8">
+                    <TextBlock Text="Select a channel to start"
+                                Foreground="White" FontSize="18" FontWeight="SemiBold"
+                                HorizontalAlignment="Center"/>
+                    <TextBlock Text="Pick any item from the channel list on the left."
+                        Foreground="#FFE0E0E0" TextAlignment="Center" MaxWidth="520"/>
+                </StackPanel>
+            </Grid>
 
             <!-- Loading overlay -->
             <Grid x:Name="LoadingOverlay"
