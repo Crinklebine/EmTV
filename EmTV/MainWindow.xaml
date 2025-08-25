@@ -52,15 +52,15 @@
                 <Button x:Name="PlaylistBtn1" Style="{StaticResource EmojiBtn}" Content="🛕"
                 Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Thai playlist"/>
                 <Button x:Name="PlaylistBtn2" Style="{StaticResource EmojiBtn}" Content="⭐"
-                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 2"/>
+                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Canada playlist"/>
                 <Button x:Name="PlaylistBtn3" Style="{StaticResource EmojiBtn}" Content="📺"
-                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 3"/>
+                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="UK playlist"/>
                 <Button x:Name="PlaylistBtn4" Style="{StaticResource EmojiBtn}" Content="🎬"
-                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 4"/>
+                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="US playlist"/>
                 <Button x:Name="PlaylistBtn5" Style="{StaticResource EmojiBtn}" Content="🌍"
-                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 5"/>
+                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Ireland playlist"/>
                 <Button x:Name="PlaylistBtn6" Style="{StaticResource EmojiBtn}" Content="🧪"
-                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Playlist 6"/>
+                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Australia playlist"/>
             </StackPanel>
 
             <!-- Advanced Controls -->
