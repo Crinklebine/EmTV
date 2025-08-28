@@ -10,6 +10,7 @@ using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Media;
 
 using Windows.ApplicationModel;               // Package.Current.Id.Version
@@ -18,6 +19,7 @@ using Windows.Media.Core;
 using Windows.Media.Playback;
 using Windows.Media.Streaming.Adaptive;
 using Windows.Storage;
+using Windows.Storage.Streams;
 using Windows.Web.Http;
 using Windows.Web.Http.Filters;
 
@@ -354,13 +356,13 @@ namespace EmTV
             }
         }
 
-
         private async void OnAboutClick(object sender, RoutedEventArgs e)
         {
+            // Version text
             string version;
             try
             {
-                var v = Package.Current.Id.Version;
+                var v = Windows.ApplicationModel.Package.Current.Id.Version;
                 version = $"{v.Major}.{v.Minor}.{v.Build}.{v.Revision}";
             }
             catch
@@ -369,21 +371,60 @@ namespace EmTV
                 version = asmVer?.ToString() ?? "0.0.0.0";
             }
 
-            var panel = new StackPanel { Spacing = 4 };
-            panel.Children.Add(new TextBlock { Text = "EmTV", FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-            panel.Children.Add(new TextBlock { Text = $"Version {version}" });
-            panel.Children.Add(new TextBlock { Text = "© Crinklebine" });
+            // Try your assets in order: emtv-icon-1024 → StoreLogo → EMTV-Load
+            var img = await TryLoadAboutImageAsync(new[]
+            {
+                "ms-appx:///Assets/emtv-icon-1024.png",
+                "ms-appx:///Assets/StoreLogo.png",
+                "ms-appx:///Assets/EMTV-Load.png"
+            });
+
+            // Text
+            var text = new StackPanel { Spacing = 4, VerticalAlignment = VerticalAlignment.Center };
+            text.Children.Add(new TextBlock { Text = "EmTV", FontSize = 20, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
+            text.Children.Add(new TextBlock { Text = $"Version {version}" });
+            text.Children.Add(new TextBlock { Text = "© Crinklebine" });
+
+            // Layout: image (if any) + text
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+            if (img is not null) row.Children.Add(img);
+            row.Children.Add(text);
 
             var dlg = new ContentDialog
             {
                 Title = "About",
-                Content = panel,
+                Content = row,
                 CloseButtonText = "OK",
                 XamlRoot = this.Content.XamlRoot
             };
 
             await dlg.ShowAsync();
         }
+
+        private static async Task<Image?> TryLoadAboutImageAsync(IEnumerable<string> candidateUris)
+        {
+            foreach (var u in candidateUris)
+            {
+                try
+                {
+                    StorageFile file = await StorageFile.GetFileFromApplicationUriAsync(new Uri(u));
+                    using IRandomAccessStream s = await file.OpenAsync(FileAccessMode.Read);
+                    var bmp = new BitmapImage();
+                    await bmp.SetSourceAsync(s);
+                    return new Image
+                    {
+                        Source = bmp,
+                        Width = 64,
+                        Height = 64,
+                        Margin = new Thickness(0, 0, 12, 0)
+                    };
+                }
+                catch { /* try next */ }
+            }
+            return null;
+        }
+
+
 
         // ====================== Playback ======================
 
