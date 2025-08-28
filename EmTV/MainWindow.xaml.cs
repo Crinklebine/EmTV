@@ -27,10 +27,24 @@ using Windows.Web.Http.Filters;
 
 namespace EmTV
 {
-    
+
     public sealed partial class MainWindow : Window
     {
         [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint hWnd);
+        [DllImport("user32.dll")] private static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int nIndex);
+        [DllImport("user32.dll")] private static extern IntPtr SetWindowLongPtr(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+        [DllImport("user32.dll")] private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+        [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+        private const int SW_HIDE = 0, SW_SHOW = 5;
+        private const int GWL_EXSTYLE = -20;
+        private const int WS_EX_TOOLWINDOW = 0x00000080;   // hide from taskbar/Alt-Tab
+        private const int WS_EX_APPWINDOW = 0x00040000;   // forces taskbar icon
+        private const uint SWP_NOSIZE = 0x0001;
+        private const uint SWP_NOMOVE = 0x0002;
+        private const uint SWP_NOZORDER = 0x0004;
+        private const uint SWP_NOACTIVATE = 0x0010;
+        private const uint SWP_FRAMECHANGED = 0x0020;
 
         // --- Simple models ---
         public record Channel(string Name, string Group, string? Logo, string Url);
@@ -590,6 +604,9 @@ namespace EmTV
             var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
             _fsAppWindow = AppWindow.GetFromWindowId(id);
 
+            SetTaskbarVisibility(_fsWindow, _fsAppWindow, true); // FS visible
+            SetTaskbarVisibility(this, _appWindow, false); // Main hidden
+
             if (_fsAppWindow is not null)
             {
                 try { _fsAppWindow.SetIcon("Assets/emtv.ico"); } catch { }
@@ -640,6 +657,9 @@ namespace EmTV
             _fsOverlayTimer?.Stop(); _fsOverlayTimer = null;
 
             RestoreMainFromPip();
+            SetTaskbarVisibility(this, _appWindow, true); // Main visible again
+            RefreshTaskbarIcon(this);
+
             if (FullIcon is not null) FullIcon.Glyph = "\uE740";
         }
 
@@ -731,6 +751,10 @@ namespace EmTV
             var pipHwnd = WinRT.Interop.WindowNative.GetWindowHandle(_pipWindow);
             var pipWinId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(pipHwnd);
             _pipAppWindow = AppWindow.GetFromWindowId(pipWinId);
+
+            SetTaskbarVisibility(_pipWindow, _pipAppWindow, true);  // PiP visible
+            SetTaskbarVisibility(this, _appWindow, false); // Main hidden
+
             if (_pipAppWindow is not null)
             {
                 _pipAppWindow.Title = "EmTV PiP";
@@ -780,6 +804,9 @@ namespace EmTV
             try { win?.Close(); } catch { }
 
             RestoreMainFromPip();
+
+            SetTaskbarVisibility(this, _appWindow, true); // Main visible again
+            RefreshTaskbarIcon(this);
         }
 
         private void OnTogglePip(object sender, RoutedEventArgs e)
@@ -853,14 +880,6 @@ namespace EmTV
         }
 
         // inside MainWindow
-        private void BringWindowToFront(Window w, Control focusTarget)
-        {
-            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(w);
-            try { SetForegroundWindow(hwnd); } catch { }
-            w.Activate();
-            focusTarget.IsTabStop = true;
-            focusTarget.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
-        }
 
         private async Task AttachPlayerToMainAndResumeAsync()
         {
@@ -895,6 +914,46 @@ namespace EmTV
                 UpdateIdleOverlay();
             }
             finally { _isReattaching = false; }
+        }
+
+        /// <summary>Show or hide a Window in taskbar/Alt-Tab.</summary>
+        private void SetTaskbarVisibility(Window w, AppWindow? aw, bool show)
+        {
+            // WinAppSDK API (Alt-Tab / Switchers)
+            try { if (aw is not null) aw.IsShownInSwitchers = show; } catch { }
+
+            // Win32 fallback (taskbar icon)
+            try
+            {
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(w);
+                long ex = GetWindowLongPtr(hwnd, GWL_EXSTYLE).ToInt64();
+                if (show)
+                {
+                    ex &= ~WS_EX_TOOLWINDOW;
+                    ex |= WS_EX_APPWINDOW;
+                }
+                else
+                {
+                    ex &= ~WS_EX_APPWINDOW;
+                    ex |= WS_EX_TOOLWINDOW;
+                }
+                SetWindowLongPtr(hwnd, GWL_EXSTYLE, new IntPtr(ex));
+                SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 0, 0,
+                    SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+            }
+            catch { /* ignore */ }
+        }
+
+        // Force taskbar to re-evaluate this window’s icon
+        private void RefreshTaskbarIcon(Window w)
+        {
+            try
+            {
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(w);
+                ShowWindow(hwnd, SW_HIDE);   // bounce visibility
+                ShowWindow(hwnd, SW_SHOW);
+            }
+            catch { /* ignore */ }
         }
 
 
