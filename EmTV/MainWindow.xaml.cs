@@ -37,6 +37,8 @@ namespace EmTV
         [DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
 
         private const int SW_HIDE = 0, SW_SHOW = 5;
+        private const int SW_MINIMIZE = 6;
+        private const int SW_RESTORE = 9; // restore from minimized
         private const int GWL_EXSTYLE = -20;
         private const int WS_EX_TOOLWINDOW = 0x00000080;   // hide from taskbar/Alt-Tab
         private const int WS_EX_APPWINDOW = 0x00040000;   // forces taskbar icon
@@ -61,7 +63,7 @@ namespace EmTV
         private bool _hasPlaylist;
         private string? _activePlaylistName;
         private bool _isReattaching;
-
+        private Windows.Graphics.RectInt32? _savedMainBounds;
         private List<Channel> _allChannels = new();   // master list for search/filter
 
         // PiP
@@ -523,20 +525,22 @@ namespace EmTV
             else EnterFullscreen();
         }
 
-        // Fields needed near your other fields:
-        // private Window? _fsWindow;
-        // private MediaPlayerElement? _fsElement;
-        // private AppWindow? _fsAppWindow;
-
         private void EnterFullscreen()
         {
             if (_isFull) return;
-            if (_isPip) ExitPip(); // optional: avoid split outputs
+            if (_isPip) ExitPip(); // ensure only one secondary window
 
-            // Detach from main surface
+            // 1) Resolve target display BEFORE touching the main window
+            var mainHwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            var mainId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(mainHwnd);
+            var display = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(
+                               mainId, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
+            var target = display.OuterBounds; // full-monitor bounds
+
+            // 2) Detach from main surface
             Player.SetMediaPlayer(null);
 
-            // Build fullscreen window: video + tiny top-right exit overlay
+            // 3) Build fullscreen window (video + tiny exit overlay)
             _fsWindow = new Window();
             _fsWindow.Title = "EmTV Fullscreen";
 
@@ -555,7 +559,7 @@ namespace EmTV
             _fsElement.SetMediaPlayer(_mp);
             _fsElement.DoubleTapped += (_, __) => ExitFullscreen();
 
-            // Exit FS overlay button (top-right)
+            // Exit FS overlay (top-right)
             var overlay = new StackPanel
             {
                 Orientation = Orientation.Horizontal,
@@ -568,16 +572,14 @@ namespace EmTV
                 Spacing = 6
             };
             var exitBtn = new Button();
-            ToolTipService.SetToolTip(exitBtn, "Exit Fullscreen (F / Esc)"); // ← set tooltip here
+            ToolTipService.SetToolTip(exitBtn, "Exit Fullscreen (F / Esc)");
             exitBtn.Content = new FontIcon { Glyph = "\uE73F", FontFamily = new FontFamily("Segoe MDL2 Assets") };
             exitBtn.Click += (_, __) => ExitFullscreen();
             overlay.Children.Add(exitBtn);
 
             overlay.Visibility = Visibility.Visible;
-
             _fsOverlayTimer = new Microsoft.UI.Xaml.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
             _fsOverlayTimer.Tick += (_, __) => overlay.Visibility = Visibility.Collapsed;
-
             root.PointerMoved += (_, __) =>
             {
                 overlay.Visibility = Visibility.Visible;
@@ -597,42 +599,30 @@ namespace EmTV
             root.Children.Add(overlay);
             _fsWindow.Content = root;
 
-            // Show FS window so we can get its AppWindow
+            // 4) Show FS window so we can get its AppWindow, then place it on the anchor display
             _fsWindow.Activate();
-
-            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_fsWindow);
-            var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
-            _fsAppWindow = AppWindow.GetFromWindowId(id);
-
-            SetTaskbarVisibility(_fsWindow, _fsAppWindow, true); // FS visible
-            SetTaskbarVisibility(this, _appWindow, false); // Main hidden
-
+            var fsHwnd = WinRT.Interop.WindowNative.GetWindowHandle(_fsWindow);
+            var fsId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(fsHwnd);
+            _fsAppWindow = AppWindow.GetFromWindowId(fsId);
             if (_fsAppWindow is not null)
             {
                 try { _fsAppWindow.SetIcon("Assets/emtv.ico"); } catch { }
-
-                // Move this FS window onto the SAME monitor as the main window
-                var anchor = (_appWindow is not null)
-                    ? new Windows.Graphics.RectInt32(_appWindow.Position.X, _appWindow.Position.Y, _appWindow.Size.Width, _appWindow.Size.Height)
-                    : new Windows.Graphics.RectInt32(0, 0, 1, 1); // fallback: primary
-
-                var display = Microsoft.UI.Windowing.DisplayArea.GetFromRect(anchor, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
-                var bounds = display.OuterBounds; // use full display bounds
-
-                // First move/resize to that display, THEN flip to FullScreen
-                _fsAppWindow.MoveAndResize(bounds);
+                _fsAppWindow.MoveAndResize(target); // put FS on the same monitor
                 try { _fsAppWindow.SetPresenter(AppWindowPresenterKind.FullScreen); } catch { }
             }
 
-            // Minimize main so users just see the video
-            MinimizeMainForPip();
+            // 5) Hand taskbar/Alt-Tab ownership to FS, then minimize main (no Win32 style flips on main)
+            SaveMainBounds();                                   // snapshot main’s normal rect
+            SetTaskbarVisibility(_fsWindow, _fsAppWindow, true); // FS visible in taskbar/switchers
+            SetMainShownInSwitchers(false);                      // main hidden from taskbar/switchers
+            MinimizeMainWindow();                                // Win32 fallback: SW_MINIMIZE
 
-            // Bring FS to foreground & focus the video so Esc/F work immediately
-            try { SetForegroundWindow(hwnd); } catch { }
+            // 6) Foreground FS & focus the video so Esc/F work immediately
+            try { SetForegroundWindow(fsHwnd); } catch { }
             _fsWindow.Activate();
             _fsElement.Focus(FocusState.Programmatic);
 
-            // If user closes via X/Alt+F4, restore video back to main
+            // 7) If user closes via X/Alt+F4, route through our exit path
             _fsWindow.Closed += (_, __) =>
             {
                 DispatcherQueue.TryEnqueue(() => { if (_isFull) ExitFullscreen(); });
@@ -642,26 +632,32 @@ namespace EmTV
             if (FullIcon is not null) FullIcon.Glyph = "\uE73F"; // back-to-window glyph
         }
 
+
         private async void ExitFullscreen()
         {
             if (!_isFull) return;
-            _isFull = false;
+            _isFull = false; // prevent Closed handler double-run
 
+            // Detach FS surface, reattach to main, and nudge playback if needed
             try { _fsElement?.SetMediaPlayer(null); } catch { }
             await AttachPlayerToMainAndResumeAsync();
 
+            // Tear down FS window
             var win = _fsWindow;
             _fsWindow = null; _fsElement = null; _fsAppWindow = null;
-            try { win?.Close(); } catch { }
+            try { win?.Close(); } catch { /* ignore */ }
 
-            _fsOverlayTimer?.Stop(); _fsOverlayTimer = null;
+            _fsOverlayTimer?.Stop();
+            _fsOverlayTimer = null;
 
-            RestoreMainFromPip();
-            SetTaskbarVisibility(this, _appWindow, true); // Main visible again
-            RefreshTaskbarIcon(this);
+            // Bring main back as the ONLY taskbar/Alt-Tab entry
+            SetMainShownInSwitchers(true);  // make main visible in switchers/taskbar first
+            RestoreMainWindow();            // unminimize + Activate + SetForegroundWindow (in helper)
+            RestoreMainBounds();            // put back saved rect from EnterFullscreen()
 
-            if (FullIcon is not null) FullIcon.Glyph = "\uE740";
+            if (FullIcon is not null) FullIcon.Glyph = "\uE740"; // restore glyph
         }
+
 
 
         private void OnToggleFullscreen(object sender, RoutedEventArgs e) => ToggleFullscreen();
@@ -707,22 +703,30 @@ namespace EmTV
 
         // ====================== PiP ======================
 
-        // P/Invoke must be inside the class:
-        // [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
-
         private void EnterPip()
         {
             if (_isPip) return;
+            if (_isFull) ExitFullscreen(); // ensure only one secondary window
 
-            // Detach player from main surface
+            // 1) Resolve target display BEFORE touching the main window
+            var mainHwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            var mainId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(mainHwnd);
+            var display = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(
+                               mainId, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
+            var wa = display.WorkArea; // work area (excludes taskbar)
+
+            // 2) Detach from main surface
             Player.SetMediaPlayer(null);
 
-            // Build minimal PiP window
+            // 3) Build minimal PiP window (video only)
             _pipWindow = new Window();
             _pipWindow.Title = "EmTV PiP";
 
-            var grid = new Grid { Background = new SolidColorBrush(Colors.Black) };
-            grid.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
+            var grid = new Grid
+            {
+                Background = new SolidColorBrush(Colors.Black),
+                KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden
+            };
 
             _pipElement = new MediaPlayerElement
             {
@@ -736,7 +740,7 @@ namespace EmTV
             grid.Children.Add(_pipElement);
             _pipWindow.Content = grid;
 
-            // PiP keyboard shortcuts: Esc / P exit
+            // Esc / P exit
             var kaEsc = new KeyboardAccelerator { Key = Windows.System.VirtualKey.Escape };
             kaEsc.Invoked += (_, __) => ExitPip();
             var kaP = new KeyboardAccelerator { Key = Windows.System.VirtualKey.P };
@@ -744,45 +748,36 @@ namespace EmTV
             grid.KeyboardAccelerators.Add(kaEsc);
             grid.KeyboardAccelerators.Add(kaP);
 
-            // Show PiP (so we can get its AppWindow)
+            // 4) Show PiP so we can get its AppWindow, then place it on the anchor display
             _pipWindow.Activate();
-
-            // Convert to compact overlay and position bottom-right of the current display's work area
             var pipHwnd = WinRT.Interop.WindowNative.GetWindowHandle(_pipWindow);
-            var pipWinId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(pipHwnd);
-            _pipAppWindow = AppWindow.GetFromWindowId(pipWinId);
-
-            SetTaskbarVisibility(_pipWindow, _pipAppWindow, true);  // PiP visible
-            SetTaskbarVisibility(this, _appWindow, false); // Main hidden
-
+            var pipId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(pipHwnd);
+            _pipAppWindow = AppWindow.GetFromWindowId(pipId);
             if (_pipAppWindow is not null)
             {
-                _pipAppWindow.Title = "EmTV PiP";
                 try { _pipAppWindow.SetIcon("Assets/emtv.ico"); } catch { }
-                try { _pipAppWindow.SetPresenter(AppWindowPresenterKind.CompactOverlay); } catch { }
 
-                // Anchor to the display that currently hosts the main window
-                var anchorRect = (_appWindow is not null)
-                    ? new Windows.Graphics.RectInt32(_appWindow.Position.X, _appWindow.Position.Y, _appWindow.Size.Width, _appWindow.Size.Height)
-                    : new Windows.Graphics.RectInt32(0, 0, 1, 1); // fallback: primary
-
-                var area = Microsoft.UI.Windowing.DisplayArea.GetFromRect(anchorRect, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
-                var wa = area.WorkArea;
-
-                const int W = 426, H = 240, M = 12;  // PiP size + margin
+                // Bottom-right placement in the work area (true 16:9)
+                const int W = 480, H = 270, M = 12;
                 int x = Math.Max(wa.X + M, wa.X + wa.Width - W - M);
                 int y = Math.Max(wa.Y + M, wa.Y + wa.Height - H - M);
 
                 _pipAppWindow.MoveAndResize(new Windows.Graphics.RectInt32(x, y, W, H));
+                try { _pipAppWindow.SetPresenter(AppWindowPresenterKind.CompactOverlay); } catch { }
             }
 
-            // Minimize main window, then bring PiP to foreground & focus video
-            MinimizeMainForPip();
-            try { SetForegroundWindow(pipHwnd); } catch { /* ignore */ }
-            _pipWindow.Activate();
-            _pipElement.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+            // 5) Hand taskbar/Alt-Tab ownership to PiP, then minimize main
+            SaveMainBounds();
+            SetTaskbarVisibility(_pipWindow, _pipAppWindow, true); // PiP visible in switchers
+            SetMainShownInSwitchers(false);                        // main hidden (no style flips)
+            MinimizeMainWindow();                                  // Win32 fallback: SW_MINIMIZE
 
-            // If user closes PiP via the titlebar X, restore playback surface to main
+            // 6) Foreground PiP & focus video so Esc/P work immediately
+            try { SetForegroundWindow(pipHwnd); } catch { }
+            _pipWindow.Activate();
+            _pipElement.Focus(FocusState.Programmatic);
+
+            // 7) If user closes via X/Alt+F4, route through our exit path
             _pipWindow.Closed += (_, __) =>
             {
                 DispatcherQueue.TryEnqueue(() => { if (_isPip) ExitPip(); });
@@ -794,20 +789,23 @@ namespace EmTV
         private async void ExitPip()
         {
             if (!_isPip) return;
-            _isPip = false; // prevents Closed handler double-run
+            _isPip = false; // prevent Closed handler double-run
 
+            // Detach from PiP surface and reattach+resume on main
             try { _pipElement?.SetMediaPlayer(null); } catch { }
             await AttachPlayerToMainAndResumeAsync();
 
+            // Tear down PiP window
             var win = _pipWindow;
             _pipWindow = null; _pipElement = null; _pipAppWindow = null;
-            try { win?.Close(); } catch { }
+            try { win?.Close(); } catch { /* ignore */ }
 
-            RestoreMainFromPip();
-
-            SetTaskbarVisibility(this, _appWindow, true); // Main visible again
-            RefreshTaskbarIcon(this);
+            // Bring main back as the only taskbar/Alt-Tab entry
+            RestoreMainWindow();            // unminimize / show (SW_RESTORE + Activate + SetForegroundWindow)
+            RestoreMainBounds();            // put back saved rect from EnterPip()
+            SetMainShownInSwitchers(true);  // main visible in switchers/taskbar again
         }
+
 
         private void OnTogglePip(object sender, RoutedEventArgs e)
         {
@@ -956,6 +954,39 @@ namespace EmTV
             catch { /* ignore */ }
         }
 
+        private void SaveMainBounds()
+        {
+            if (_appWindow is null) return;
+            _savedMainBounds = new Windows.Graphics.RectInt32(
+                _appWindow.Position.X, _appWindow.Position.Y, _appWindow.Size.Width, _appWindow.Size.Height);
+        }
+
+        private void RestoreMainBounds()
+        {
+            if (_appWindow is null || _savedMainBounds is null) return;
+            _appWindow.MoveAndResize(_savedMainBounds.Value);
+            _savedMainBounds = null;
+        }
+
+        // Show/hide MAIN window in Alt+Tab/taskbar WITHOUT Win32 style flips (prevents the tiny caption)
+        private void SetMainShownInSwitchers(bool show)
+        {
+            try { if (_appWindow is not null) _appWindow.IsShownInSwitchers = show; } catch { }
+        }
+
+        private void MinimizeMainWindow()
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            ShowWindow(hwnd, SW_MINIMIZE);
+        }
+
+        private void RestoreMainWindow()
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+            ShowWindow(hwnd, SW_RESTORE);
+            this.Activate();
+            try { SetForegroundWindow(hwnd); } catch { /* best effort */ }
+        }
 
     }
 }
