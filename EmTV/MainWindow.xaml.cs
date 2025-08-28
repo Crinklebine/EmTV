@@ -46,6 +46,7 @@ namespace EmTV
         private Microsoft.UI.Xaml.DispatcherTimer? _fsOverlayTimer;
         private bool _hasPlaylist;
         private string? _activePlaylistName;
+        private bool _isReattaching;
 
         private List<Channel> _allChannels = new();   // master list for search/filter
 
@@ -617,48 +618,31 @@ namespace EmTV
             // If user closes via X/Alt+F4, restore video back to main
             _fsWindow.Closed += (_, __) =>
             {
-                DispatcherQueue.TryEnqueue(() =>
-                {
-                    // stop/clear the auto-hide overlay timer to avoid it running after FS closes
-                    _fsOverlayTimer?.Stop();
-                    _fsOverlayTimer = null;
-
-                    if (_isFull)
-                    {
-                        try { _fsElement?.SetMediaPlayer(null); } catch { }
-                        Player.SetMediaPlayer(_mp);
-                        _isFull = false;
-                        _fsWindow = null; _fsElement = null; _fsAppWindow = null;
-                        RestoreMainFromPip();
-                        if (FullIcon is not null) FullIcon.Glyph = "\uE740";
-                    }
-                });
+                DispatcherQueue.TryEnqueue(() => { if (_isFull) ExitFullscreen(); });
             };
-
 
             _isFull = true;
             if (FullIcon is not null) FullIcon.Glyph = "\uE73F"; // back-to-window glyph
         }
 
-        private void ExitFullscreen()
+        private async void ExitFullscreen()
         {
             if (!_isFull) return;
-
-            _isFull = false; // prevent Closed handler double-run
+            _isFull = false;
 
             try { _fsElement?.SetMediaPlayer(null); } catch { }
-            Player.SetMediaPlayer(_mp);
+            await AttachPlayerToMainAndResumeAsync();
 
             var win = _fsWindow;
             _fsWindow = null; _fsElement = null; _fsAppWindow = null;
             try { win?.Close(); } catch { }
 
-            RestoreMainFromPip();                      // bring EmTV back
-            if (FullIcon is not null) FullIcon.Glyph = "\uE740"; // fullscreen glyph
+            _fsOverlayTimer?.Stop(); _fsOverlayTimer = null;
 
-            _fsOverlayTimer?.Stop();
-            _fsOverlayTimer = null;
+            RestoreMainFromPip();
+            if (FullIcon is not null) FullIcon.Glyph = "\uE740";
         }
+
 
         private void OnToggleFullscreen(object sender, RoutedEventArgs e) => ToggleFullscreen();
 
@@ -777,34 +761,23 @@ namespace EmTV
             // If user closes PiP via the titlebar X, restore playback surface to main
             _pipWindow.Closed += (_, __) =>
             {
-                DispatcherQueue.TryEnqueue(() =>
-                {
-                    if (_isPip)
-                    {
-                        try { _pipElement?.SetMediaPlayer(null); } catch { }
-                        Player.SetMediaPlayer(_mp);
-                        _isPip = false;
-                        _pipWindow = null; _pipElement = null; _pipAppWindow = null;
-                        RestoreMainFromPip();
-                    }
-                });
+                DispatcherQueue.TryEnqueue(() => { if (_isPip) ExitPip(); });
             };
 
             _isPip = true;
         }
 
-        private void ExitPip()
+        private async void ExitPip()
         {
             if (!_isPip) return;
-
-            _isPip = false; // prevent Closed handler from double-running
+            _isPip = false; // prevents Closed handler double-run
 
             try { _pipElement?.SetMediaPlayer(null); } catch { }
-            Player.SetMediaPlayer(_mp);
+            await AttachPlayerToMainAndResumeAsync();
 
-            var win = _pipWindow;  // Close after detaching
+            var win = _pipWindow;
             _pipWindow = null; _pipElement = null; _pipAppWindow = null;
-            try { win?.Close(); } catch { /* ignore */ }
+            try { win?.Close(); } catch { }
 
             RestoreMainFromPip();
         }
@@ -887,6 +860,41 @@ namespace EmTV
             w.Activate();
             focusTarget.IsTabStop = true;
             focusTarget.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+        }
+
+        private async Task AttachPlayerToMainAndResumeAsync()
+        {
+            if (_isReattaching) return;
+            _isReattaching = true;
+            try
+            {
+                // Re-attach to the main surface
+                Player.SetMediaPlayer(_mp);
+
+                // Let XAML bind the surface
+                await Task.Delay(30);
+
+                // If we landed in Paused/None during the handoff, nudge playback
+                var ps = _mp.PlaybackSession;
+                for (int i = 0; i < 3; i++)
+                {
+                    var st = ps?.PlaybackState ?? MediaPlaybackState.None;
+                    if (st == MediaPlaybackState.Playing) break;
+                    _mp.Play();
+                    await Task.Delay(60);
+                }
+
+                // Clean UI so main window doesn't look idle
+                LoadingOverlay.Visibility = Visibility.Collapsed;
+                HideErrorOverlay();
+                Player.AreTransportControlsEnabled =
+                    ps?.PlaybackState is MediaPlaybackState.Playing or MediaPlaybackState.Paused;
+
+                // If you want to suppress a brief flicker, you can force-hide here:
+                IdleOverlay.Visibility = Visibility.Collapsed;
+                UpdateIdleOverlay();
+            }
+            finally { _isReattaching = false; }
         }
 
 
