@@ -38,7 +38,9 @@ namespace EmTV
         private MediaPlayer _mp;
         private AppWindow? _appWindow;
         private bool _isFull;
-
+        private Window? _fsWindow;
+        private MediaPlayerElement? _fsElement;
+        private AppWindow? _fsAppWindow;
         private bool _hasPlaylist;
         private string? _activePlaylistName;
 
@@ -460,22 +462,141 @@ namespace EmTV
 
         private void ToggleFullscreen()
         {
-            if (_appWindow is null) return;
+            if (_isFull) ExitFullscreen();
+            else EnterFullscreen();
+        }
 
-            try
+        // Fields needed near your other fields:
+        // private Window? _fsWindow;
+        // private MediaPlayerElement? _fsElement;
+        // private AppWindow? _fsAppWindow;
+
+        private void EnterFullscreen()
+        {
+            if (_isFull) return;
+            if (_isPip) ExitPip(); // optional: avoid split outputs
+
+            // Detach from main surface
+            Player.SetMediaPlayer(null);
+
+            // Build fullscreen window: video + tiny top-right exit overlay
+            _fsWindow = new Window();
+            _fsWindow.Title = "EmTV Fullscreen";
+
+            var root = new Grid
             {
-                if (!_isFull)
-                    _appWindow.SetPresenter(AppWindowPresenterKind.FullScreen);
-                else
-                    _appWindow.SetPresenter(AppWindowPresenterKind.Default);
+                Background = new SolidColorBrush(Colors.Black),
+                KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden
+            };
 
-                _isFull = !_isFull;
+            _fsElement = new MediaPlayerElement
+            {
+                AreTransportControlsEnabled = false, // video-only
+                Stretch = Stretch.Uniform,
+                IsTabStop = true
+            };
+            _fsElement.SetMediaPlayer(_mp);
+            _fsElement.DoubleTapped += (_, __) => ExitFullscreen();
 
-                // Update the glyph on your Fullscreen button (named FullIcon in XAML)
-                if (FullIcon is not null)
-                    FullIcon.Glyph = _isFull ? "\uE73F" /* back-to-window */ : "\uE740" /* fullscreen */;
+            // Exit FS overlay button (top-right)
+            var overlay = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Top,
+                Margin = new Thickness(8),
+                Background = new SolidColorBrush(Windows.UI.Color.FromArgb(0x80, 0x00, 0x00, 0x00)),
+                Padding = new Thickness(6),
+                CornerRadius = new CornerRadius(8),
+                Spacing = 6
+            };
+            var exitBtn = new Button();
+            ToolTipService.SetToolTip(exitBtn, "Exit Fullscreen (F / Esc)"); // ← set tooltip here
+            exitBtn.Content = new FontIcon { Glyph = "\uE73F", FontFamily = new FontFamily("Segoe MDL2 Assets") };
+            exitBtn.Click += (_, __) => ExitFullscreen();
+            overlay.Children.Add(exitBtn);
+
+
+            // Keyboard shortcuts: Esc/F exit
+            var kaEsc = new KeyboardAccelerator { Key = Windows.System.VirtualKey.Escape };
+            kaEsc.Invoked += (_, __) => ExitFullscreen();
+            var kaF = new KeyboardAccelerator { Key = Windows.System.VirtualKey.F };
+            kaF.Invoked += (_, __) => ExitFullscreen();
+            root.KeyboardAccelerators.Add(kaEsc);
+            root.KeyboardAccelerators.Add(kaF);
+
+            root.Children.Add(_fsElement);
+            root.Children.Add(overlay);
+            _fsWindow.Content = root;
+
+            // Show FS window so we can get its AppWindow
+            _fsWindow.Activate();
+
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(_fsWindow);
+            var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
+            _fsAppWindow = AppWindow.GetFromWindowId(id);
+
+            if (_fsAppWindow is not null)
+            {
+                try { _fsAppWindow.SetIcon("Assets/emtv.ico"); } catch { }
+
+                // Move this FS window onto the SAME monitor as the main window
+                var anchor = (_appWindow is not null)
+                    ? new Windows.Graphics.RectInt32(_appWindow.Position.X, _appWindow.Position.Y, _appWindow.Size.Width, _appWindow.Size.Height)
+                    : new Windows.Graphics.RectInt32(0, 0, 1, 1); // fallback: primary
+
+                var display = Microsoft.UI.Windowing.DisplayArea.GetFromRect(anchor, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
+                var bounds = display.OuterBounds; // use full display bounds
+
+                // First move/resize to that display, THEN flip to FullScreen
+                _fsAppWindow.MoveAndResize(bounds);
+                try { _fsAppWindow.SetPresenter(AppWindowPresenterKind.FullScreen); } catch { }
             }
-            catch { }
+
+            // Minimize main so users just see the video
+            MinimizeMainForPip();
+
+            // Bring FS to foreground & focus the video so Esc/F work immediately
+            try { SetForegroundWindow(hwnd); } catch { }
+            _fsWindow.Activate();
+            _fsElement.Focus(FocusState.Programmatic);
+
+            // If user closes via X/Alt+F4, restore video back to main
+            _fsWindow.Closed += (_, __) =>
+            {
+                DispatcherQueue.TryEnqueue(() =>
+                {
+                    if (_isFull)
+                    {
+                        try { _fsElement?.SetMediaPlayer(null); } catch { }
+                        Player.SetMediaPlayer(_mp);
+                        _isFull = false;
+                        _fsWindow = null; _fsElement = null; _fsAppWindow = null;
+                        RestoreMainFromPip();
+                        if (FullIcon is not null) FullIcon.Glyph = "\uE740"; // fullscreen glyph
+                    }
+                });
+            };
+
+            _isFull = true;
+            if (FullIcon is not null) FullIcon.Glyph = "\uE73F"; // back-to-window glyph
+        }
+
+        private void ExitFullscreen()
+        {
+            if (!_isFull) return;
+
+            _isFull = false; // prevent Closed handler double-run
+
+            try { _fsElement?.SetMediaPlayer(null); } catch { }
+            Player.SetMediaPlayer(_mp);
+
+            var win = _fsWindow;
+            _fsWindow = null; _fsElement = null; _fsAppWindow = null;
+            try { win?.Close(); } catch { }
+
+            RestoreMainFromPip();                      // bring EmTV back
+            if (FullIcon is not null) FullIcon.Glyph = "\uE740"; // fullscreen glyph
         }
 
         private void OnToggleFullscreen(object sender, RoutedEventArgs e) => ToggleFullscreen();
@@ -521,6 +642,9 @@ namespace EmTV
 
         // ====================== PiP ======================
 
+        // P/Invoke must be inside the class:
+        // [DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr hWnd);
+
         private void EnterPip()
         {
             if (_isPip) return;
@@ -534,12 +658,12 @@ namespace EmTV
 
             var grid = new Grid { Background = new SolidColorBrush(Colors.Black) };
             grid.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
-            grid.Loaded += (_, __) => grid.Focus(FocusState.Programmatic); // ensure keyboard focus
 
             _pipElement = new MediaPlayerElement
             {
                 AreTransportControlsEnabled = false,
-                Stretch = Stretch.UniformToFill
+                Stretch = Stretch.Uniform,
+                IsTabStop = true
             };
             _pipElement.SetMediaPlayer(_mp);
             _pipElement.DoubleTapped += (_, __) => ExitPip();
@@ -573,7 +697,7 @@ namespace EmTV
                     ? new Windows.Graphics.RectInt32(_appWindow.Position.X, _appWindow.Position.Y, _appWindow.Size.Width, _appWindow.Size.Height)
                     : new Windows.Graphics.RectInt32(0, 0, 1, 1); // fallback: primary
 
-                var area = DisplayArea.GetFromRect(anchorRect, DisplayAreaFallback.Nearest);
+                var area = Microsoft.UI.Windowing.DisplayArea.GetFromRect(anchorRect, Microsoft.UI.Windowing.DisplayAreaFallback.Nearest);
                 var wa = area.WorkArea;
 
                 const int W = 426, H = 240, M = 12;  // PiP size + margin
@@ -583,14 +707,11 @@ namespace EmTV
                 _pipAppWindow.MoveAndResize(new Windows.Graphics.RectInt32(x, y, W, H));
             }
 
-            // Minimize main window, then bring PiP to foreground & focus
+            // Minimize main window, then bring PiP to foreground & focus video
             MinimizeMainForPip();
-            var pipHwnd2 = WinRT.Interop.WindowNative.GetWindowHandle(_pipWindow);
-            SetForegroundWindow(pipHwnd2);                 // <- force foreground (user-initiated, so allowed)
-            _pipWindow.Activate();                         // ensure it's the active window
-            _pipElement.IsTabStop = true;                  // make sure it can take focus
-            _pipElement.Focus(Microsoft.UI.Xaml.FocusState.Keyboard); // focus the video surface
-            grid.Focus(FocusState.Programmatic);
+            try { SetForegroundWindow(pipHwnd); } catch { /* ignore */ }
+            _pipWindow.Activate();
+            _pipElement.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
 
             // If user closes PiP via the titlebar X, restore playback surface to main
             _pipWindow.Closed += (_, __) =>
@@ -615,25 +736,23 @@ namespace EmTV
         {
             if (!_isPip) return;
 
-            _isPip = false; // prevent Closed handler from doing duplicate work
+            _isPip = false; // prevent Closed handler from double-running
 
             try { _pipElement?.SetMediaPlayer(null); } catch { }
             Player.SetMediaPlayer(_mp);
 
-            var win = _pipWindow; // keep a local in case Close() nulls it internally
-            _pipWindow = null;
-            _pipElement = null;
-            _pipAppWindow = null;
-
+            var win = _pipWindow;  // Close after detaching
+            _pipWindow = null; _pipElement = null; _pipAppWindow = null;
             try { win?.Close(); } catch { /* ignore */ }
 
-            RestoreMainFromPip(); // bring main window back
+            RestoreMainFromPip();
         }
 
         private void OnTogglePip(object sender, RoutedEventArgs e)
         {
             if (_isPip) ExitPip(); else EnterPip();
         }
+
 
         // ====================== M3U parsing ======================
 
@@ -698,6 +817,17 @@ namespace EmTV
             }
             catch { /* ignore */ }
         }
+
+        // inside MainWindow
+        private void BringWindowToFront(Window w, Control focusTarget)
+        {
+            var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(w);
+            try { SetForegroundWindow(hwnd); } catch { }
+            w.Activate();
+            focusTarget.IsTabStop = true;
+            focusTarget.Focus(Microsoft.UI.Xaml.FocusState.Programmatic);
+        }
+
 
     }
 }
