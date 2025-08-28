@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 
 using Microsoft.UI;
@@ -20,10 +21,15 @@ using Windows.Storage;
 using Windows.Web.Http;
 using Windows.Web.Http.Filters;
 
+
+
 namespace EmTV
 {
+    
     public sealed partial class MainWindow : Window
     {
+        [DllImport("user32.dll")] private static extern bool SetForegroundWindow(nint hWnd);
+
         // --- Simple models ---
         public record Channel(string Name, string Group, string? Logo, string Url);
         public record PlaylistSlot(string Emoji, string? Url);
@@ -519,13 +525,16 @@ namespace EmTV
         {
             if (_isPip) return;
 
-            // Detach from main
+            // Detach player from main surface
             Player.SetMediaPlayer(null);
 
+            // Build minimal PiP window
             _pipWindow = new Window();
             _pipWindow.Title = "EmTV PiP";
+
             var grid = new Grid { Background = new SolidColorBrush(Colors.Black) };
             grid.KeyboardAcceleratorPlacementMode = KeyboardAcceleratorPlacementMode.Hidden;
+            grid.Loaded += (_, __) => grid.Focus(FocusState.Programmatic); // ensure keyboard focus
 
             _pipElement = new MediaPlayerElement
             {
@@ -534,30 +543,56 @@ namespace EmTV
             };
             _pipElement.SetMediaPlayer(_mp);
             _pipElement.DoubleTapped += (_, __) => ExitPip();
-            _pipWindow.Content = grid;
-            grid.Children.Add(_pipElement);
 
-            // Esc/P accelerators in PiP window
+            grid.Children.Add(_pipElement);
+            _pipWindow.Content = grid;
+
+            // PiP keyboard shortcuts: Esc / P exit
             var kaEsc = new KeyboardAccelerator { Key = Windows.System.VirtualKey.Escape };
-            kaEsc.Invoked += (_, __) => { ExitPip(); };
+            kaEsc.Invoked += (_, __) => ExitPip();
             var kaP = new KeyboardAccelerator { Key = Windows.System.VirtualKey.P };
-            kaP.Invoked += (_, __) => { ExitPip(); };
+            kaP.Invoked += (_, __) => ExitPip();
             grid.KeyboardAccelerators.Add(kaEsc);
             grid.KeyboardAccelerators.Add(kaP);
 
+            // Show PiP (so we can get its AppWindow)
             _pipWindow.Activate();
 
+            // Convert to compact overlay and position bottom-right of the current display's work area
             var pipHwnd = WinRT.Interop.WindowNative.GetWindowHandle(_pipWindow);
-            var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(pipHwnd);
-            _pipAppWindow = AppWindow.GetFromWindowId(id);
+            var pipWinId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(pipHwnd);
+            _pipAppWindow = AppWindow.GetFromWindowId(pipWinId);
             if (_pipAppWindow is not null)
             {
                 _pipAppWindow.Title = "EmTV PiP";
-                try { _pipAppWindow.SetIcon("Assets/emtv.ico"); } catch { /* optional */ }
-            }
-            try { _pipAppWindow.SetPresenter(AppWindowPresenterKind.CompactOverlay); } catch { }
-            _pipAppWindow.MoveAndResize(new RectInt32(100, 100, 426, 240));
+                try { _pipAppWindow.SetIcon("Assets/emtv.ico"); } catch { }
+                try { _pipAppWindow.SetPresenter(AppWindowPresenterKind.CompactOverlay); } catch { }
 
+                // Anchor to the display that currently hosts the main window
+                var anchorRect = (_appWindow is not null)
+                    ? new Windows.Graphics.RectInt32(_appWindow.Position.X, _appWindow.Position.Y, _appWindow.Size.Width, _appWindow.Size.Height)
+                    : new Windows.Graphics.RectInt32(0, 0, 1, 1); // fallback: primary
+
+                var area = DisplayArea.GetFromRect(anchorRect, DisplayAreaFallback.Nearest);
+                var wa = area.WorkArea;
+
+                const int W = 426, H = 240, M = 12;  // PiP size + margin
+                int x = Math.Max(wa.X + M, wa.X + wa.Width - W - M);
+                int y = Math.Max(wa.Y + M, wa.Y + wa.Height - H - M);
+
+                _pipAppWindow.MoveAndResize(new Windows.Graphics.RectInt32(x, y, W, H));
+            }
+
+            // Minimize main window, then bring PiP to foreground & focus
+            MinimizeMainForPip();
+            var pipHwnd2 = WinRT.Interop.WindowNative.GetWindowHandle(_pipWindow);
+            SetForegroundWindow(pipHwnd2);                 // <- force foreground (user-initiated, so allowed)
+            _pipWindow.Activate();                         // ensure it's the active window
+            _pipElement.IsTabStop = true;                  // make sure it can take focus
+            _pipElement.Focus(Microsoft.UI.Xaml.FocusState.Keyboard); // focus the video surface
+            grid.Focus(FocusState.Programmatic);
+
+            // If user closes PiP via the titlebar X, restore playback surface to main
             _pipWindow.Closed += (_, __) =>
             {
                 DispatcherQueue.TryEnqueue(() =>
@@ -568,6 +603,7 @@ namespace EmTV
                         Player.SetMediaPlayer(_mp);
                         _isPip = false;
                         _pipWindow = null; _pipElement = null; _pipAppWindow = null;
+                        RestoreMainFromPip();
                     }
                 });
             };
@@ -579,12 +615,19 @@ namespace EmTV
         {
             if (!_isPip) return;
 
+            _isPip = false; // prevent Closed handler from doing duplicate work
+
             try { _pipElement?.SetMediaPlayer(null); } catch { }
             Player.SetMediaPlayer(_mp);
-            try { _pipWindow?.Close(); } catch { }
 
-            _pipWindow = null; _pipElement = null; _pipAppWindow = null;
-            _isPip = false;
+            var win = _pipWindow; // keep a local in case Close() nulls it internally
+            _pipWindow = null;
+            _pipElement = null;
+            _pipAppWindow = null;
+
+            try { win?.Close(); } catch { /* ignore */ }
+
+            RestoreMainFromPip(); // bring main window back
         }
 
         private void OnTogglePip(object sender, RoutedEventArgs e)
@@ -628,5 +671,33 @@ namespace EmTV
             var j = s.IndexOf('"', i + k.Length);
             return j > i ? s.Substring(i + k.Length, j - (i + k.Length)) : null;
         }
+
+        // Bring in OverlappedPresenter methods
+        // using Microsoft.UI.Windowing;  // (you already have this at the top)
+
+        private void MinimizeMainForPip()
+        {
+            if (_appWindow is null) return;
+            try
+            {
+                // Ensure we're in an overlapped presenter, then minimize
+                _appWindow.SetPresenter(AppWindowPresenterKind.Default);
+                if (_appWindow.Presenter is OverlappedPresenter ov) ov.Minimize();
+            }
+            catch { /* ignore */ }
+        }
+
+        private void RestoreMainFromPip()
+        {
+            if (_appWindow is null) return;
+            try
+            {
+                _appWindow.SetPresenter(AppWindowPresenterKind.Default);
+                if (_appWindow.Presenter is OverlappedPresenter ov) ov.Restore();
+                this.Activate(); // bring focus back to EmTV
+            }
+            catch { /* ignore */ }
+        }
+
     }
 }
