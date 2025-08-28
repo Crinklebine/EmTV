@@ -4,7 +4,17 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     Title="EmTV">
 
-    <Grid x:Name="Root">
+    <Grid x:Name="Root" KeyboardAcceleratorPlacementMode="Hidden">
+
+        <Grid.KeyboardAccelerators>
+            <KeyboardAccelerator Key="Space"   Invoked="OnAccel"/>
+            <KeyboardAccelerator Key="Up"      Invoked="OnAccel"/>
+            <KeyboardAccelerator Key="Down"    Invoked="OnAccel"/>
+            <KeyboardAccelerator Key="M"       Invoked="OnAccel"/>
+            <KeyboardAccelerator Key="F"       Invoked="OnAccel"/>
+            <KeyboardAccelerator Key="Escape"  Invoked="OnAccel"/>
+            <KeyboardAccelerator Key="P"       Invoked="OnAccel"/>
+        </Grid.KeyboardAccelerators>
 
         <!-- Styles -->
         <Grid.Resources>
@@ -58,9 +68,9 @@
                 <Button x:Name="PlaylistBtn4" Style="{StaticResource EmojiBtn}" Content="🎬"
                 Click="OnPlaylistButtonClick" ToolTipService.ToolTip="US playlist"/>
                 <Button x:Name="PlaylistBtn5" Style="{StaticResource EmojiBtn}" Content="🌍"
-                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Ireland playlist"/>
-                <Button x:Name="PlaylistBtn6" Style="{StaticResource EmojiBtn}" Content="🧪"
                 Click="OnPlaylistButtonClick" ToolTipService.ToolTip="Australia playlist"/>
+                <Button x:Name="PlaylistBtn6" Style="{StaticResource EmojiBtn}" Content="🧪"
+                Click="OnPlaylistButtonClick" ToolTipService.ToolTip="World playlist"/>
             </StackPanel>
 
             <!-- Advanced Controls + About -->
@@ -75,24 +85,44 @@
             Margin="0,0,0,4"
             FontWeight="SemiBold"/>
 
-            <ListView Grid.Row="4"
-                x:Name="Samples"
-                IsItemClickEnabled="True"
-                ItemClick="OnSampleClick"
-                ScrollViewer.VerticalScrollBarVisibility="Auto">
-                <ListView.ItemTemplate>
-                    <DataTemplate>
-                        <TextBlock Text="{Binding Name}"
-                       FontWeight="SemiBold"
-                       TextWrapping="NoWrap"
-                       TextTrimming="CharacterEllipsis"/>
-                    </DataTemplate>
-                </ListView.ItemTemplate>
-            </ListView>
+            <!-- REPLACE the ListView at Grid.Row="4" with this -->
+            <Grid Grid.Row="4">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <!-- search -->
+                    <RowDefinition Height="*"/>
+                    <!-- list -->
+                </Grid.RowDefinitions>
+
+                <!-- Search box -->
+                <TextBox x:Name="SearchBox"
+           Grid.Row="0"
+           PlaceholderText="Search channels…"
+           Margin="0,0,0,8"
+           TextChanged="OnSearchTextChanged"
+           KeyDown="OnSearchKeyDown"/>
+
+                <!-- Channel list -->
+                <ListView x:Name="Samples"
+            Grid.Row="1"
+            IsItemClickEnabled="True"
+            ItemClick="OnSampleClick"
+            ScrollViewer.VerticalScrollBarVisibility="Auto">
+                    <ListView.ItemTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Name}"
+                   FontWeight="SemiBold"
+                   TextWrapping="NoWrap"
+                   TextTrimming="CharacterEllipsis"/>
+                        </DataTemplate>
+                    </ListView.ItemTemplate>
+                </ListView>
+            </Grid>
+
         </Grid>
 
         <!-- Right: video + overlays -->
-        <Grid x:Name="VideoHost" Grid.Column="1" Background="Black" KeyDown="OnRootKeyDown">
+        <Grid x:Name="VideoHost" Grid.Column="1" Background="Black">
 
             <!-- Video surface (poster shows until a Source is set) -->
             <MediaPlayerElement x:Name="Player"
@@ -145,19 +175,30 @@
                 </StackPanel>
             </Grid>
 
-            <!-- Fullscreen button -->
+            <!-- Overlay: fullscreen + PiP -->
             <StackPanel Orientation="Horizontal"
-                  HorizontalAlignment="Right"
-                  VerticalAlignment="Top"
-                  Margin="8"
-                  Background="#80000000"
-                  Padding="6"
-                  CornerRadius="8">
+            HorizontalAlignment="Right"
+            VerticalAlignment="Top"
+            Margin="8"
+            Background="#80000000"
+            Padding="6"
+            CornerRadius="8"
+            Spacing="6">
+
+                <!-- NEW: PiP toggle -->
+                <Button x:Name="PipBtn"
+            Click="OnTogglePip"
+            ToolTipService.ToolTip="Picture in Picture (P)">
+                    <TextBlock Text="PiP" FontWeight="SemiBold"/>
+                </Button>
+
+                <!-- Existing: Fullscreen toggle -->
                 <Button x:Name="FullBtn" Click="OnToggleFullscreen"
-                ToolTipService.ToolTip="Fullscreen (F) / Exit (Esc)">
+            ToolTipService.ToolTip="Fullscreen (F) / Exit (Esc)">
                     <FontIcon x:Name="FullIcon" Glyph="&#xE740;" FontFamily="Segoe MDL2 Assets"/>
                 </Button>
             </StackPanel>
+
         </Grid>
 
     </Grid>
