@@ -65,6 +65,7 @@ namespace EmTV
         private bool _isReattaching;
         private Windows.Graphics.RectInt32? _savedMainBounds;
         private List<Channel> _allChannels = new();   // master list for search/filter
+        private bool _suppressSearch;
 
         // PiP
         private Window? _pipWindow;
@@ -191,7 +192,11 @@ namespace EmTV
             UpdateIdleOverlay();
         }
 
-        private void OnSearchTextChanged(object sender, TextChangedEventArgs e) => ApplyChannelFilter();
+        private void OnSearchTextChanged(object sender, TextChangedEventArgs e)
+        {
+            if (_suppressSearch) return;     // don't react when we clear programmatically
+            ApplyChannelFilter();
+        }
 
         private void OnSearchKeyDown(object sender, KeyRoutedEventArgs e)
         {
@@ -270,7 +275,7 @@ namespace EmTV
                 _allChannels = chs;
                 _hasPlaylist = _allChannels.Count > 0;
                 SetActivePlaylistName(friendlyName ?? FriendlyNameFromUrl(url));
-                ApplyChannelFilter();
+                ClearSearchAndFilter();
                 UpdateIdleOverlay();
             }
             catch (Exception ex)
@@ -295,7 +300,7 @@ namespace EmTV
             _allChannels = chs;
             _hasPlaylist = _allChannels.Count > 0;
             SetActivePlaylistName(file.DisplayName);
-            ApplyChannelFilter();
+            ClearSearchAndFilter();
             UpdateIdleOverlay();
         }
 
@@ -313,7 +318,7 @@ namespace EmTV
                 _allChannels = chs;
                 _hasPlaylist = _allChannels.Count > 0;
                 SetActivePlaylistName(Path.GetFileNameWithoutExtension(input));
-                ApplyChannelFilter();
+                ClearSearchAndFilter();
                 UpdateIdleOverlay();
                 return;
             }
@@ -667,6 +672,9 @@ namespace EmTV
         // KeyboardAccelerators handler (hooked in XAML on Root)
         private void OnAccel(object sender, KeyboardAcceleratorInvokedEventArgs e)
         {
+            var focused = Microsoft.UI.Xaml.Input.FocusManager.GetFocusedElement(this.Content.XamlRoot);
+            if (focused is TextBox or AutoSuggestBox or RichEditBox) return;
+
             switch (e.KeyboardAccelerator.Key)
             {
                 case Windows.System.VirtualKey.Space:
@@ -850,33 +858,6 @@ namespace EmTV
             return j > i ? s.Substring(i + k.Length, j - (i + k.Length)) : null;
         }
 
-        // Bring in OverlappedPresenter methods
-        // using Microsoft.UI.Windowing;  // (you already have this at the top)
-
-        private void MinimizeMainForPip()
-        {
-            if (_appWindow is null) return;
-            try
-            {
-                // Ensure we're in an overlapped presenter, then minimize
-                _appWindow.SetPresenter(AppWindowPresenterKind.Default);
-                if (_appWindow.Presenter is OverlappedPresenter ov) ov.Minimize();
-            }
-            catch { /* ignore */ }
-        }
-
-        private void RestoreMainFromPip()
-        {
-            if (_appWindow is null) return;
-            try
-            {
-                _appWindow.SetPresenter(AppWindowPresenterKind.Default);
-                if (_appWindow.Presenter is OverlappedPresenter ov) ov.Restore();
-                this.Activate(); // bring focus back to EmTV
-            }
-            catch { /* ignore */ }
-        }
-
         // inside MainWindow
 
         private async Task AttachPlayerToMainAndResumeAsync()
@@ -986,6 +967,15 @@ namespace EmTV
             ShowWindow(hwnd, SW_RESTORE);
             this.Activate();
             try { SetForegroundWindow(hwnd); } catch { /* best effort */ }
+        }
+
+        private void ClearSearchAndFilter()
+        {
+            if (SearchBox is null) return;
+            _suppressSearch = true;
+            SearchBox.Text = "";      // clears the box visually
+            _suppressSearch = false;
+            ApplyChannelFilter();     // shows the full list
         }
 
     }
