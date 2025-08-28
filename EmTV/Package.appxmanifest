@@ -10,7 +10,7 @@
   <Identity
     Name="752e612b-7025-476f-8b7f-51a3590332b2"
     Publisher="CN=Crinklebine"
-    Version="0.3.8.0" />
+    Version="0.3.9.0" />
 
   <mp:PhoneIdentity PhoneProductId="752e612b-7025-476f-8b7f-51a3590332b2" PhonePublisherId="00000000-0000-0000-0000-000000000000"/>
 

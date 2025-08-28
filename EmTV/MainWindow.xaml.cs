@@ -41,6 +41,7 @@ namespace EmTV
         private Window? _fsWindow;
         private MediaPlayerElement? _fsElement;
         private AppWindow? _fsAppWindow;
+        private Microsoft.UI.Xaml.DispatcherTimer? _fsOverlayTimer;
         private bool _hasPlaylist;
         private string? _activePlaylistName;
 
@@ -516,6 +517,17 @@ namespace EmTV
             exitBtn.Click += (_, __) => ExitFullscreen();
             overlay.Children.Add(exitBtn);
 
+            overlay.Visibility = Visibility.Visible;
+
+            _fsOverlayTimer = new Microsoft.UI.Xaml.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            _fsOverlayTimer.Tick += (_, __) => overlay.Visibility = Visibility.Collapsed;
+
+            root.PointerMoved += (_, __) =>
+            {
+                overlay.Visibility = Visibility.Visible;
+                _fsOverlayTimer?.Stop();
+                _fsOverlayTimer?.Start();
+            };
 
             // Keyboard shortcuts: Esc/F exit
             var kaEsc = new KeyboardAccelerator { Key = Windows.System.VirtualKey.Escape };
@@ -566,6 +578,10 @@ namespace EmTV
             {
                 DispatcherQueue.TryEnqueue(() =>
                 {
+                    // stop/clear the auto-hide overlay timer to avoid it running after FS closes
+                    _fsOverlayTimer?.Stop();
+                    _fsOverlayTimer = null;
+
                     if (_isFull)
                     {
                         try { _fsElement?.SetMediaPlayer(null); } catch { }
@@ -573,10 +589,11 @@ namespace EmTV
                         _isFull = false;
                         _fsWindow = null; _fsElement = null; _fsAppWindow = null;
                         RestoreMainFromPip();
-                        if (FullIcon is not null) FullIcon.Glyph = "\uE740"; // fullscreen glyph
+                        if (FullIcon is not null) FullIcon.Glyph = "\uE740";
                     }
                 });
             };
+
 
             _isFull = true;
             if (FullIcon is not null) FullIcon.Glyph = "\uE73F"; // back-to-window glyph
@@ -597,6 +614,9 @@ namespace EmTV
 
             RestoreMainFromPip();                      // bring EmTV back
             if (FullIcon is not null) FullIcon.Glyph = "\uE740"; // fullscreen glyph
+
+            _fsOverlayTimer?.Stop();
+            _fsOverlayTimer = null;
         }
 
         private void OnToggleFullscreen(object sender, RoutedEventArgs e) => ToggleFullscreen();
