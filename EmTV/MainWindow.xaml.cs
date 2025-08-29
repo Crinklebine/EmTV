@@ -13,7 +13,8 @@ using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 
-using Windows.Graphics;                          // RectInt32
+using Windows.ApplicationModel;
+using Windows.Graphics;
 using Windows.Media.Core;
 using Windows.Media.Playback;
 using Windows.Media.Streaming.Adaptive;
@@ -492,7 +493,20 @@ namespace EmTV
 
         private async void OnAboutClick(object sender, RoutedEventArgs e)
         {
-            string version = System.Reflection.Assembly.GetExecutingAssembly()?.GetName()?.Version?.ToString() ?? "0.0.0.0";
+            string version;
+            try
+            {
+                var v = Package.Current.Id.Version;               // MSIX manifest version
+                version = $"{v.Major}.{v.Minor}.{v.Build}.{v.Revision}";
+            }
+            catch
+            {
+                // Unpackaged fallback (when running the app project directly)
+                version = System.Reflection.Assembly
+                            .GetExecutingAssembly()
+                            .GetName()
+                            .Version?.ToString() ?? "1.0.0.0";
+            }
 
             var img = await TryLoadImageAsync(new[]
             {
