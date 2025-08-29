@@ -103,7 +103,7 @@ namespace EmTV
 
             // Create an initial player (quiet) and attach to main surface
             CreateFreshPlayer();
-            Player.AreTransportControlsEnabled = false; // always off (we surface our own UI)
+            Player.AreTransportControlsEnabled = false; // transport controls
             try
             {
                 Player.TransportControls.IsSeekBarVisible = false;
