@@ -995,9 +995,9 @@ namespace EmTV
                     _appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id);
                 }
 
-                // Keep current position, force 1200x600
+                // Keep current position, force 1200x800
                 var pos = _appWindow.Position;
-                _appWindow.MoveAndResize(new Windows.Graphics.RectInt32(pos.X, pos.Y, 1200, 600));
+                _appWindow.MoveAndResize(new Windows.Graphics.RectInt32(pos.X, pos.Y, 1200, 800));
             }
             catch
             {
