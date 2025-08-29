@@ -66,6 +66,7 @@ namespace EmTV
         private Windows.Graphics.RectInt32? _savedMainBounds;
         private List<Channel> _allChannels = new();   // master list for search/filter
         private bool _suppressSearch;
+        private bool _initialSized;
 
         // PiP
         private Window? _pipWindow;
@@ -95,6 +96,7 @@ namespace EmTV
             var winId = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
             _appWindow = AppWindow.GetFromWindowId(winId);
             try { _appWindow?.SetIcon("Assets/emtv.ico"); } catch { }
+            Root.Loaded += (_, __) => SetInitialWindowSize();
 
             // MediaPlayer
             _mp = new MediaPlayer();
@@ -978,5 +980,32 @@ namespace EmTV
             ApplyChannelFilter();     // shows the full list
         }
 
+        private void SetInitialWindowSize()
+        {
+            if (_initialSized) return;
+            _initialSized = true;
+
+            try
+            {
+                // Ensure _appWindow exists
+                if (_appWindow is null)
+                {
+                    var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+                    var id = Microsoft.UI.Win32Interop.GetWindowIdFromWindow(hwnd);
+                    _appWindow = Microsoft.UI.Windowing.AppWindow.GetFromWindowId(id);
+                }
+
+                // Keep current position, force 1200x600
+                var pos = _appWindow.Position;
+                _appWindow.MoveAndResize(new Windows.Graphics.RectInt32(pos.X, pos.Y, 1200, 600));
+            }
+            catch
+            {
+                // Fallback if AppWindow API isn’t available
+                var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
+                const uint SWP_NOMOVE = 0x0002, SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010, SWP_FRAMECHANGED = 0x0020;
+                SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 1200, 460, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+            }
+        }
     }
 }
