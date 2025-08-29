@@ -1004,7 +1004,7 @@ namespace EmTV
                 // Fallback if AppWindow API isn’t available
                 var hwnd = WinRT.Interop.WindowNative.GetWindowHandle(this);
                 const uint SWP_NOMOVE = 0x0002, SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010, SWP_FRAMECHANGED = 0x0020;
-                SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 1200, 460, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+                SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 1200, 800, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
             }
         }
     }
