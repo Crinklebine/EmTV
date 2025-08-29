@@ -67,6 +67,7 @@ namespace EmTV
         private List<Channel> _allChannels = new();   // master list for search/filter
         private bool _suppressSearch;
         private bool _initialSized;
+        private string? _currentUrl;
 
         // PiP
         private Window? _pipWindow;
@@ -102,6 +103,14 @@ namespace EmTV
             _mp = new MediaPlayer();
             _mp.MediaFailed += OnMediaFailed;
             _mp.PlaybackSession.PlaybackStateChanged += OnPlaybackStateChanged;
+
+            _mp.MediaOpened += (_, __) => DispatcherQueue.TryEnqueue(() =>
+            {
+                ClearErrorUI();
+                LoadingOverlay.Visibility = Visibility.Collapsed;
+                IdleOverlay.Visibility = Visibility.Collapsed;
+                UpdateIdleOverlay();
+            });
 
             Player.SetMediaPlayer(_mp);
             Player.AreTransportControlsEnabled = false;
@@ -454,6 +463,8 @@ namespace EmTV
 
         private async Task PlayUrlAsync(string url)
         {
+            _currentUrl = url;
+            ClearErrorUI();
             HideErrorOverlay();
             IdleOverlay.Visibility = Visibility.Collapsed;
             LoadingOverlay.Visibility = Visibility.Visible;
@@ -648,6 +659,7 @@ namespace EmTV
             // Detach FS surface, reattach to main, and nudge playback if needed
             try { _fsElement?.SetMediaPlayer(null); } catch { }
             await AttachPlayerToMainAndResumeAsync();
+            ClearErrorUI();
 
             // Tear down FS window
             var win = _fsWindow;
@@ -804,6 +816,7 @@ namespace EmTV
             // Detach from PiP surface and reattach+resume on main
             try { _pipElement?.SetMediaPlayer(null); } catch { }
             await AttachPlayerToMainAndResumeAsync();
+            ClearErrorUI();
 
             // Tear down PiP window
             var win = _pipWindow;
@@ -868,13 +881,29 @@ namespace EmTV
             _isReattaching = true;
             try
             {
-                // Re-attach to the main surface
                 Player.SetMediaPlayer(_mp);
-
-                // Let XAML bind the surface
                 await Task.Delay(30);
 
-                // If we landed in Paused/None during the handoff, nudge playback
+                // NEW: if the player was left without a source (e.g., after MediaFailed), rebuild it
+                if (_mp.Source is null && !string.IsNullOrWhiteSpace(_currentUrl))
+                {
+                    MediaSource? src = null;
+                    try
+                    {
+                        var amsResult = await AdaptiveMediaSource.CreateFromUriAsync(new Uri(_currentUrl));
+                        if (amsResult.Status == AdaptiveMediaSourceCreationStatus.Success)
+                        {
+                            var ams = amsResult.MediaSource;
+                            try { ams.DesiredLiveOffset = TimeSpan.FromSeconds(2); } catch { }
+                            src = MediaSource.CreateFromAdaptiveMediaSource(ams);
+                        }
+                    }
+                    catch { /* fall through */ }
+                    src ??= MediaSource.CreateFromUri(new Uri(_currentUrl));
+                    _mp.Source = src;
+                }
+
+                // Nudge playback if needed
                 var ps = _mp.PlaybackSession;
                 for (int i = 0; i < 3; i++)
                 {
@@ -884,18 +913,17 @@ namespace EmTV
                     await Task.Delay(60);
                 }
 
-                // Clean UI so main window doesn't look idle
                 LoadingOverlay.Visibility = Visibility.Collapsed;
-                HideErrorOverlay();
+                ClearErrorUI();
                 Player.AreTransportControlsEnabled =
                     ps?.PlaybackState is MediaPlaybackState.Playing or MediaPlaybackState.Paused;
 
-                // If you want to suppress a brief flicker, you can force-hide here:
                 IdleOverlay.Visibility = Visibility.Collapsed;
                 UpdateIdleOverlay();
             }
             finally { _isReattaching = false; }
         }
+
 
         /// <summary>Show or hide a Window in taskbar/Alt-Tab.</summary>
         private void SetTaskbarVisibility(Window w, AppWindow? aw, bool show)
@@ -1007,5 +1035,20 @@ namespace EmTV
                 SetWindowPos(hwnd, IntPtr.Zero, 0, 0, 1200, 800, SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
             }
         }
+
+        private void ClearErrorUI()
+        {
+            // your custom overlay (if any)
+            HideErrorOverlay();   // no-op if you already removed it
+
+            // force-reset the built-in transport controls banner
+            if (Player is not null)
+            {
+                var was = Player.AreTransportControlsEnabled;
+                Player.AreTransportControlsEnabled = false;
+                Player.AreTransportControlsEnabled = was;
+            }
+        }
+
     }
 }
